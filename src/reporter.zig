@@ -482,3 +482,31 @@ pub const JsonReporter = struct {
         try s.writer.print("}},\n", .{});
     }
 };
+
+// Tests
+test "Colors constants exist" {
+    // Just verify the constants are defined
+    _ = Colors.reset;
+    _ = Colors.bold;
+    _ = Colors.dim;
+    _ = Colors.red;
+    _ = Colors.green;
+    _ = Colors.yellow;
+    _ = Colors.blue;
+    _ = Colors.magenta;
+    _ = Colors.cyan;
+    _ = Colors.white;
+    _ = Colors.gray;
+}
+
+test "TestResults creation" {
+    const allocator = std.testing.allocator;
+
+    var results = TestResults.init(allocator);
+    defer results.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), results.total);
+    try std.testing.expectEqual(@as(usize, 0), results.passed);
+    try std.testing.expectEqual(@as(usize, 0), results.failed);
+    try std.testing.expectEqual(@as(usize, 0), results.skipped);
+}

@@ -4,6 +4,8 @@ A modern, feature-rich testing framework for Zig inspired by Jest, Vitest, and B
 
 ## Features
 
+- **Test Discovery** - Automatic discovery of `*.test.zig` files
+- **Code Coverage** - Line, branch, and function coverage with HTML reports (via kcov/grindcov)
 - **Familiar API** - Describe/it syntax similar to Jest and Vitest
 - **Rich Assertions** - Comprehensive assertion library with `.expect()` and matchers
 - **Error Assertions** - `toThrow()` and `toThrowError()` for testing error handling
@@ -44,7 +46,65 @@ Add to your `build.zig.zon`:
 
 ## Usage
 
-### Basic Test Example
+There are two ways to use the Zig Test Framework:
+
+1. **Test Discovery Mode** - Automatically discover and run `*.test.zig` files (recommended)
+2. **Programmatic Mode** - Manually register tests using `describe()` and `it()`
+
+### Test Discovery Mode (Recommended)
+
+The easiest way to use the framework is with automatic test discovery:
+
+1. Create test files with the `.test.zig` extension:
+
+```zig
+// tests/math.test.zig
+const std = @import("std");
+
+test "addition works" {
+    const result = 2 + 2;
+    try std.testing.expectEqual(@as(i32, 4), result);
+}
+
+test "subtraction works" {
+    const result = 10 - 5;
+    try std.testing.expectEqual(@as(i32, 5), result);
+}
+```
+
+2. Run all tests:
+
+```bash
+zig-test --test-dir tests
+```
+
+This will automatically discover and run all `*.test.zig` files in the `tests` directory.
+
+**CLI Options for Test Discovery:**
+- `--test-dir <dir>` - Directory to search for tests (default: current directory)
+- `--pattern <pattern>` - File pattern to match (default: `*.test.zig`)
+- `--no-recursive` - Disable recursive directory search
+- `--bail` - Stop on first failure
+- `--verbose` - Show detailed output
+
+**Examples:**
+```bash
+# Run all tests in tests/ directory
+zig-test --test-dir tests
+
+# Run tests with custom pattern
+zig-test --test-dir src --pattern "*.spec.zig"
+
+# Run tests without recursion
+zig-test --test-dir tests --no-recursive
+
+# Stop on first failure
+zig-test --test-dir tests --bail
+```
+
+### Programmatic Mode
+
+For more control, you can manually register tests:
 
 ```zig
 const std = @import("std");
@@ -333,6 +393,115 @@ zig-test --no-color
 | `--verbose` | | Enable verbose output |
 | `--quiet` | `-q` | Minimal output |
 | `--no-color` | | Disable colored output |
+| `--test-dir <dir>` | | Directory to search for tests |
+| `--pattern <pattern>` | | Test file pattern (default: *.test.zig) |
+| `--no-recursive` | | Disable recursive directory search |
+| `--coverage` | | Enable code coverage collection |
+| `--coverage-dir <dir>` | | Coverage output directory (default: coverage) |
+| `--coverage-tool <tool>` | | Coverage tool to use (kcov or grindcov) |
+
+## Code Coverage
+
+The framework integrates with external coverage tools to provide comprehensive code coverage reporting including line, branch, and function coverage.
+
+### Prerequisites
+
+Install one of the supported coverage tools:
+
+**kcov (recommended)**:
+```bash
+# macOS
+brew install kcov
+
+# Ubuntu/Debian
+sudo apt-get install kcov
+
+# From source
+git clone https://github.com/SimonKagstrom/kcov.git
+cd kcov
+cmake . && make && sudo make install
+```
+
+**grindcov**:
+```bash
+# Install Valgrind first
+brew install valgrind  # macOS
+sudo apt-get install valgrind  # Ubuntu/Debian
+
+# Then install grindcov
+pip install grindcov
+```
+
+### Using Coverage
+
+Enable coverage collection with the `--coverage` flag when running tests:
+
+```bash
+# Enable coverage with default settings (kcov)
+zig-test --test-dir tests --coverage
+
+# Specify custom coverage directory
+zig-test --test-dir tests --coverage --coverage-dir my-coverage
+
+# Use grindcov instead of kcov
+zig-test --test-dir tests --coverage --coverage-tool grindcov
+```
+
+### Coverage Output
+
+When coverage is enabled, you'll see a coverage summary after test execution:
+
+```
+Test Summary:
+  Files run: 5
+  Passed: 5
+  Failed: 0
+
+==================== Coverage Summary ====================
+
+  Line Coverage:     245/300 (81.67%)
+  Function Coverage: 45/50 (90.00%)
+  Branch Coverage:   120/150 (80.00%)
+
+  Coverage report: coverage/index.html
+==========================================================
+```
+
+### HTML Coverage Reports
+
+Coverage reports are generated in HTML format and can be viewed in your browser:
+
+```bash
+# Run tests with coverage
+zig-test --test-dir tests --coverage
+
+# Open the HTML report
+open coverage/index.html  # macOS
+xdg-open coverage/index.html  # Linux
+```
+
+The HTML report provides:
+- **Line Coverage**: Shows which lines of code were executed
+- **Branch Coverage**: Shows which code branches were taken
+- **Function Coverage**: Shows which functions were called
+- **File-by-file breakdown**: Detailed coverage for each source file
+- **Color-coded highlighting**: Red for uncovered lines, green for covered
+
+### Coverage Features
+
+- **Automatic integration**: Coverage collection is seamlessly integrated with test discovery
+- **Multiple test files**: Coverage is aggregated across all test files
+- **HTML reports**: Rich, interactive HTML reports with syntax highlighting
+- **Graceful fallback**: If coverage tool is not installed, tests run normally without coverage
+- **Flexible configuration**: Choose your coverage tool and output directory
+
+### Coverage Best Practices
+
+1. **Install kcov**: It's faster and more mature than grindcov
+2. **Regular coverage checks**: Run coverage regularly during development
+3. **Set coverage goals**: Aim for >80% line coverage as a baseline
+4. **Review uncovered code**: Use the HTML report to identify untested code paths
+5. **CI/CD integration**: Add coverage checks to your continuous integration pipeline
 
 ## Reporters
 

@@ -8,12 +8,12 @@ on:
 
 jobs:
   test:
-    name: Test on ${{ matrix.os }}
+    name: Test on ${{ matrix.os }} with Zig ${{ matrix.zig-version }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        zig-version: ['0.13.0', 'master']
+        zig-version: ['0.15.1', 'master']
       fail-fast: false
 
     steps:
@@ -48,7 +48,7 @@ jobs:
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: '0.13.0'
+          version: '0.15.1'
 
       - name: Check formatting
         run: zig fmt --check .
@@ -64,13 +64,13 @@ jobs:
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: '0.13.0'
+          version: '0.15.1'
 
       - name: Generate docs
         run: zig build-lib -femit-docs src/lib.zig
 
       - name: Upload docs artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: docs
           path: docs/
@@ -86,9 +86,28 @@ jobs:
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
-          version: '0.13.0'
+          version: '0.15.1'
+
+      - name: Install kcov
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y kcov
+
+      - name: Build framework
+        run: zig build
 
       - name: Run tests with coverage
-        run: zig build test
+        run: ./zig-out/bin/zig-test --test-dir tests --coverage
 
-      # TODO: Add coverage reporting when Zig supports it better
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          directory: ./coverage
+          fail_ci_if_error: false
+          verbose: true
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/

@@ -24,28 +24,128 @@ pub fn main() !void {
         return;
     }
 
-    // Get the test registry
-    var registry = lib.getRegistry(allocator);
-    defer registry.deinit();
+    // Check if we should use test discovery or programmatic tests
+    const use_discovery = cli_parser.options.test_dir != null;
 
-    // Create test runner with CLI options
-    const runner_options = cli_parser.toRunnerOptions();
-    var runner = lib.TestRunner.init(allocator, registry, runner_options);
-    defer runner.deinit();
+    // Start UI server if requested
+    var ui_server: ?lib.UIServer = null;
+    var ui_thread: ?std.Thread = null;
+    var server_running = std.atomic.Value(bool).init(false);
 
-    // Run tests
-    const all_passed = runner.run() catch |err| {
-        switch (err) {
-            lib.test_runner.RunnerError.NoTestsFound => {
-                std.debug.print("\nNo tests found!\n", .{});
-                std.debug.print("Make sure to:\n", .{});
-                std.debug.print("  1. Register tests using describe() and it()\n", .{});
-                std.debug.print("  2. Import and call your test setup code\n", .{});
-                std.process.exit(1);
-            },
-            else => return err,
+    defer {
+        if (ui_server) |*server| {
+            server_running.store(false, .monotonic);
+            server.deinit();
         }
-    };
+        if (ui_thread) |thread| {
+            thread.detach();
+        }
+    }
+
+    if (cli_parser.options.ui) {
+        const ui_options = lib.UIServerOptions{
+            .port = cli_parser.options.ui_port,
+            .host = cli_parser.options.ui_host,
+            .verbose = cli_parser.options.verbose,
+        };
+
+        ui_server = lib.UIServer.init(allocator, ui_options);
+        try ui_server.?.start();
+
+        std.debug.print("UI Server started at http://{s}:{d}\n", .{ ui_options.host, ui_options.port });
+        std.debug.print("Open this URL in your browser to view test results.\n\n", .{});
+
+        // Start server in background thread
+        const ServerContext = struct {
+            server: *lib.UIServer,
+            running: *std.atomic.Value(bool),
+            verbose: bool,
+
+            fn run(ctx: @This()) void {
+                ctx.running.store(true, .monotonic);
+                while (ctx.running.load(.monotonic)) {
+                    ctx.server.acceptClient() catch |err| {
+                        if (ctx.verbose) {
+                            std.debug.print("UI Server error: {any}\n", .{err});
+                        }
+                        // Small delay to avoid tight loop on errors
+                        std.Thread.sleep(100 * std.time.ns_per_ms);
+                    };
+                }
+            }
+        };
+
+        const server_ctx = ServerContext{
+            .server = &ui_server.?,
+            .running = &server_running,
+            .verbose = cli_parser.options.verbose,
+        };
+        ui_thread = try std.Thread.spawn(.{}, ServerContext.run, .{server_ctx});
+
+        // Give server time to start
+        std.Thread.sleep(100 * std.time.ns_per_ms);
+    }
+
+    var all_passed: bool = undefined;
+
+    if (use_discovery) {
+        // Use test discovery mode
+        const discovery_options = lib.DiscoveryOptions{
+            .root_path = cli_parser.options.test_dir orelse ".",
+            .pattern = cli_parser.options.pattern,
+            .recursive = !cli_parser.options.no_recursive,
+        };
+
+        std.debug.print("Discovering tests in '{s}' with pattern '*{s}'...\n\n", .{ discovery_options.root_path, discovery_options.pattern });
+
+        var discovered = try lib.discoverTests(allocator, discovery_options);
+        defer discovered.deinit();
+
+        // Create coverage options if coverage is enabled
+        const cov_opts = if (cli_parser.options.coverage) lib.CoverageOptions{
+            .enabled = true,
+            .output_dir = cli_parser.options.coverage_dir,
+            .tool = if (std.mem.eql(u8, cli_parser.options.coverage_tool, "grindcov"))
+                .grindcov
+            else
+                .kcov,
+            .html_report = true,
+            .clean = true,
+        } else null;
+
+        const loader_options = lib.LoaderOptions{
+            .bail = cli_parser.options.bail,
+            .filter = cli_parser.options.filter,
+            .verbose = cli_parser.options.verbose,
+            .coverage_options = cov_opts,
+            .ui_server = if (ui_server) |*server| server else null,
+        };
+
+        all_passed = try lib.runDiscoveredTests(allocator, &discovered, loader_options);
+    } else {
+        // Use programmatic test registration mode (existing behavior)
+        const registry = lib.getRegistry(allocator);
+        defer lib.cleanupRegistry();
+
+        // Create test runner with CLI options
+        const runner_options = cli_parser.toRunnerOptions();
+        var runner = lib.TestRunner.init(allocator, registry, runner_options);
+        defer runner.deinit();
+
+        // Run tests
+        all_passed = runner.run() catch |err| {
+            switch (err) {
+                lib.test_runner.RunnerError.NoTestsFound => {
+                    std.debug.print("\nNo tests found!\n", .{});
+                    std.debug.print("Make sure to:\n", .{});
+                    std.debug.print("  1. Register tests using describe() and it(), OR\n", .{});
+                    std.debug.print("  2. Use --test-dir to discover *.test.zig files\n", .{});
+                    std.process.exit(1);
+                },
+                else => return err,
+            }
+        };
+    }
 
     // Exit with appropriate code
     if (all_passed) {

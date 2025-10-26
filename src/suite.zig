@@ -374,3 +374,57 @@ pub fn afterAll(allocator: std.mem.Allocator, hook: HookFn) !void {
         try suite.addAfterAll(hook);
     }
 }
+
+// Tests
+test "TestStatus enum values" {
+    const pending_status = TestStatus.pending;
+    const running_status = TestStatus.running;
+    const passed_status = TestStatus.passed;
+    const failed_status = TestStatus.failed;
+    const skipped_status = TestStatus.skipped;
+
+    try std.testing.expect(pending_status == .pending);
+    try std.testing.expect(running_status == .running);
+    try std.testing.expect(passed_status == .passed);
+    try std.testing.expect(failed_status == .failed);
+    try std.testing.expect(skipped_status == .skipped);
+}
+
+test "TestCase creation" {
+    const allocator = std.testing.allocator;
+
+    const name_duped = try allocator.dupe(u8, "test case");
+    defer allocator.free(name_duped);
+
+    const test_case = TestCase{
+        .name = name_duped,
+        .test_fn = undefined,
+        .status = .pending,
+        .skip = false,
+        .only = false,
+        .error_message = null,
+    };
+
+    try std.testing.expectEqualStrings("test case", test_case.name);
+    try std.testing.expect(test_case.status == .pending);
+    try std.testing.expect(!test_case.skip);
+    try std.testing.expect(!test_case.only);
+}
+
+test "TestSuite creation and cleanup" {
+    const allocator = std.testing.allocator;
+
+    var suite = try TestSuite.init(allocator, "Test Suite");
+    defer suite.deinit();
+
+    try std.testing.expectEqualStrings("Test Suite", suite.name);
+    try std.testing.expect(!suite.skip);
+    try std.testing.expect(!suite.only);
+    try std.testing.expectEqual(@as(usize, 0), suite.tests.items.len);
+    try std.testing.expectEqual(@as(usize, 0), suite.suites.items.len);
+}
+
+test "TestRegistry cleanup" {
+    // Verify cleanup doesn't crash
+    cleanupRegistry();
+}

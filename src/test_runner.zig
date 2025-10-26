@@ -1,6 +1,7 @@
 const std = @import("std");
 const suite = @import("suite.zig");
 const reporter_mod = @import("reporter.zig");
+const parallel = @import("parallel.zig");
 
 pub const RunnerError = error{
     NoTestsFound,
@@ -12,6 +13,8 @@ pub const RunnerOptions = struct {
     filter: ?[]const u8 = null, // Test name filter
     reporter_type: ReporterType = .spec,
     use_colors: bool = true,
+    parallel: bool = false, // Enable parallel execution
+    n_jobs: ?usize = null, // Number of parallel jobs
 };
 
 pub const ReporterType = enum {
@@ -69,11 +72,54 @@ pub const TestRunner = struct {
         // Notify reporter of run start
         try current_reporter.onRunStart(total_tests);
 
-        // Run all test suites
-        for (self.registry.root_suites.items) |test_suite| {
-            try self.runSuite(test_suite, current_reporter);
-            if (self.options.bail and self.results.failed > 0) {
-                break;
+        // Run tests in parallel or sequential based on options
+        if (self.options.parallel) {
+            const parallel_opts = parallel.ParallelOptions{
+                .enabled = true,
+                .n_jobs = self.options.n_jobs,
+            };
+
+            _ = parallel.runTestsParallel(
+                self.allocator,
+                self.registry,
+                current_reporter,
+                parallel_opts,
+            ) catch |err| {
+                std.debug.print("Parallel execution failed: {any}, falling back to sequential\n", .{err});
+                // Fall back to sequential execution
+                for (self.registry.root_suites.items) |test_suite| {
+                    try self.runSuite(test_suite, current_reporter);
+                    if (self.options.bail and self.results.failed > 0) {
+                        break;
+                    }
+                }
+                return false;
+            };
+
+            // Update results from parallel execution
+            self.results.total = 0;
+            self.results.passed = 0;
+            self.results.failed = 0;
+            self.results.skipped = 0;
+
+            for (self.registry.root_suites.items) |test_suite| {
+                for (test_suite.tests.items) |test_case| {
+                    self.results.total += 1;
+                    switch (test_case.status) {
+                        .passed => self.results.passed += 1,
+                        .failed => self.results.failed += 1,
+                        .skipped => self.results.skipped += 1,
+                        else => {},
+                    }
+                }
+            }
+        } else {
+            // Sequential execution (original behavior)
+            for (self.registry.root_suites.items) |test_suite| {
+                try self.runSuite(test_suite, current_reporter);
+                if (self.options.bail and self.results.failed > 0) {
+                    break;
+                }
             }
         }
 
@@ -231,4 +277,38 @@ pub fn runTestsWithOptions(allocator: std.mem.Allocator, registry: *suite.TestRe
     var runner = TestRunner.init(allocator, registry, options);
     defer runner.deinit();
     return try runner.run();
+}
+
+// Tests
+test "ReporterType enum values" {
+    const spec = ReporterType.spec;
+    const dot = ReporterType.dot;
+    const json = ReporterType.json;
+
+    try std.testing.expect(spec == .spec);
+    try std.testing.expect(dot == .dot);
+    try std.testing.expect(json == .json);
+}
+
+test "RunnerOptions default values" {
+    const options = RunnerOptions{};
+
+    try std.testing.expectEqual(false, options.bail);
+    try std.testing.expectEqual(@as(?[]const u8, null), options.filter);
+    try std.testing.expectEqual(ReporterType.spec, options.reporter_type);
+    try std.testing.expectEqual(true, options.use_colors);
+}
+
+test "RunnerOptions custom values" {
+    const options = RunnerOptions{
+        .bail = true,
+        .filter = "test",
+        .reporter_type = .json,
+        .use_colors = false,
+    };
+
+    try std.testing.expectEqual(true, options.bail);
+    try std.testing.expectEqualStrings("test", options.filter.?);
+    try std.testing.expectEqual(ReporterType.json, options.reporter_type);
+    try std.testing.expectEqual(false, options.use_colors);
 }

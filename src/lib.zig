@@ -8,6 +8,12 @@ pub const reporter = @import("reporter.zig");
 pub const matchers = @import("matchers.zig");
 pub const mock = @import("mock.zig");
 pub const cli = @import("cli.zig");
+pub const discovery = @import("discovery.zig");
+pub const test_loader = @import("test_loader.zig");
+pub const coverage = @import("coverage.zig");
+pub const parallel = @import("parallel.zig");
+pub const ui_server = @import("ui_server.zig");
+pub const test_history = @import("test_history.zig");
 
 // Re-export commonly used types and functions
 pub const expect = assertions.expect;
@@ -71,6 +77,41 @@ pub const CallRecord = mock.CallRecord;
 // CLI
 pub const CLI = cli.CLI;
 pub const CLIOptions = cli.CLIOptions;
+
+// Test Discovery
+pub const DiscoveryOptions = discovery.DiscoveryOptions;
+pub const DiscoveryResult = discovery.DiscoveryResult;
+pub const TestFile = discovery.TestFile;
+pub const discoverTests = discovery.discoverTests;
+
+// Test Loader
+pub const LoaderOptions = test_loader.LoaderOptions;
+pub const runDiscoveredTests = test_loader.runDiscoveredTests;
+
+// Coverage
+pub const CoverageOptions = coverage.CoverageOptions;
+pub const CoverageResult = coverage.CoverageResult;
+pub const CoverageTool = coverage.CoverageTool;
+pub const runWithCoverage = coverage.runWithCoverage;
+pub const runTestWithCoverage = coverage.runTestWithCoverage;
+pub const parseCoverageReport = coverage.parseCoverageReport;
+pub const printCoverageSummary = coverage.printCoverageSummary;
+pub const isCoverageToolAvailable = coverage.isCoverageToolAvailable;
+
+// Parallel Execution
+pub const ParallelOptions = parallel.ParallelOptions;
+pub const runTestsParallel = parallel.runTestsParallel;
+
+// UI Server
+pub const UIServer = ui_server.UIServer;
+pub const UIServerOptions = ui_server.UIServerOptions;
+pub const UIReporter = ui_server.UIReporter;
+pub const MultiReporter = ui_server.MultiReporter;
+
+// Test History
+pub const TestHistory = test_history.TestHistory;
+pub const HistoryEntry = test_history.HistoryEntry;
+pub const TestRecord = test_history.TestRecord;
 
 // Utility to get the test registry
 pub fn getRegistry(allocator: std.mem.Allocator) *TestRegistry {
