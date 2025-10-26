@@ -135,6 +135,11 @@ pub const TestRecord = test_history.TestRecord;
 // Snapshot Testing
 pub const Snapshot = snapshot.Snapshot;
 pub const SnapshotOptions = snapshot.SnapshotOptions;
+pub const SnapshotFormat = snapshot.SnapshotFormat;
+pub const SnapshotDiff = snapshot.SnapshotDiff;
+pub const DiffEntry = snapshot.DiffEntry;
+pub const InlineSnapshot = snapshot.InlineSnapshot;
+pub const SnapshotCleanup = snapshot.SnapshotCleanup;
 pub const createSnapshot = snapshot.snapshot;
 
 // Watch Mode

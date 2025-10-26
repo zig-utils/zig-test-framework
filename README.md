@@ -6,17 +6,24 @@ A modern, feature-rich testing framework for Zig inspired by Jest, Vitest, and B
 
 - **Test Discovery** - Automatic discovery of `*.test.zig` files
 - **Code Coverage** - Line, branch, and function coverage with HTML reports (via kcov/grindcov)
+- **Async Test Support** - Full async test execution with concurrent and sequential modes
+- **Timeout Handling** - Configurable timeouts at test, suite, and global levels with extension support
 - **Familiar API** - Describe/it syntax similar to Jest and Vitest
 - **Rich Assertions** - Comprehensive assertion library with `.expect()` and matchers
 - **Error Assertions** - `toThrow()` and `toThrowError()` for testing error handling
-- **Test Hooks** - beforeEach, afterEach, beforeAll, afterAll support
-- **Multiple Reporters** - Spec, Dot, and JSON reporters built-in
+- **Test Hooks** - beforeEach, afterEach, beforeAll, afterAll support (with async support)
+- **Multiple Reporters** - Spec, Dot, JSON, TAP, and JUnit reporters built-in
 - **Mocking & Spying** - Function mocking and call tracking
 - **Advanced Matchers** - Floating-point comparison, array/struct matchers, and more
 - **CLI Support** - Full command-line interface with filtering and options
 - **Nested Suites** - Support for nested describe blocks
 - **Test Filtering** - Skip tests with `.skip()` or focus with `.only()`
 - **Colorized Output** - Beautiful, readable test output with colors
+- **Snapshot Testing** - Compare outputs against saved snapshots
+- **Watch Mode** - Automatically re-run tests on file changes
+- **Memory Profiling** - Track memory usage and detect leaks
+- **Parallel Execution** - Run tests in parallel for faster execution
+- **Configuration Files** - YAML/JSON/TOML config file support
 
 ## Installation
 
@@ -358,6 +365,86 @@ try ztf.describeOnly(allocator, "Only this suite", struct {
 }.testSuite);
 ```
 
+### Async Tests
+
+Run tests asynchronously with full concurrency support:
+
+```zig
+// Basic async test
+try ztf.itAsync(allocator, "async operation", struct {
+    fn run(alloc: std.mem.Allocator) !void {
+        _ = alloc;
+        std.Thread.sleep(100 * std.time.ns_per_ms);
+        // Test async operations
+    }
+}.run);
+
+// Async test with custom timeout
+try ztf.itAsyncTimeout(allocator, "slow async operation", asyncTestFn, 10000);
+
+// Skip/only for async tests
+try ztf.itAsyncSkip(allocator, "skipped async test", testFn);
+try ztf.itAsyncOnly(allocator, "focused async test", testFn);
+
+// Using AsyncTestExecutor for advanced control
+var executor = ztf.AsyncTestExecutor.init(allocator, .{
+    .concurrent = true,
+    .max_concurrent = 5,
+    .default_timeout_ms = 5000,
+});
+defer executor.deinit();
+
+try executor.registerTest("test1", testFn1);
+try executor.registerTest("test2", testFn2);
+
+const results = try executor.executeAll();
+defer allocator.free(results);
+```
+
+### Timeout Handling
+
+Configure timeouts at multiple levels:
+
+```zig
+// Per-test timeout (1 second)
+try ztf.itTimeout(allocator, "timed test", testFn, 1000);
+
+// Per-suite timeout (5 seconds for all tests in suite)
+try ztf.describeTimeout(allocator, "Timed Suite", 5000, struct {
+    fn suite(alloc: std.mem.Allocator) !void {
+        try ztf.it(alloc, "test 1", test1);
+        try ztf.it(alloc, "test 2", test2);
+    }
+}.suite);
+
+// Global timeout configuration
+const global_config = ztf.GlobalTimeoutConfig{
+    .default_timeout_ms = 5000,
+    .enabled = true,
+    .allow_extension = true,
+    .max_extension_ms = 30000,
+};
+
+var enforcer = ztf.TimeoutEnforcer.init(allocator, global_config);
+defer enforcer.deinit();
+
+// Timeout context for manual control
+var context = ztf.TimeoutContext.init(allocator, 1000);
+context.start();
+
+// Extend timeout if needed
+try context.extend(500);
+
+// Check status
+if (context.isTimedOut()) {
+    // Handle timeout
+}
+
+context.complete();
+var result = try context.getResult();
+defer result.deinit();
+```
+
 ## CLI Usage
 
 ```bash
@@ -568,10 +655,13 @@ See [docs/api.md](docs/api.md) for complete API documentation.
 
 ## Examples
 
-Check out the `examples/` directory for more examples:
+Check out the `examples/` directory for comprehensive examples:
 
 - `examples/basic_test.zig` - Basic assertions and test structure
 - `examples/advanced_test.zig` - Hooks, matchers, mocking, and advanced features
+- `examples/async_tests.zig` - Async test execution (8 scenarios)
+- `examples/timeout_examples.zig` - Timeout handling (10 scenarios)
+- See `ASYNC_TEST_COMPLETE.md` and `TIMEOUT_COMPLETE.md` for detailed documentation
 
 ## Building from Source
 
@@ -604,11 +694,15 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Roadmap
 
-- [ ] Snapshot testing
-- [ ] Async/await test support
-- [ ] Test timeout handling
-- [ ] Code coverage reporting
-- [ ] Watch mode for file changes
+- [x] Snapshot testing
+- [x] Async/await test support
+- [x] Test timeout handling
+- [x] Code coverage reporting
+- [x] Watch mode for file changes
+- [x] TAP/JUnit reporters
+- [x] Memory profiling
+- [x] Configuration files (YAML/JSON/TOML)
+- [x] Parallel test execution
 - [ ] Parameterized tests (it.each)
 - [ ] Property-based testing
 - [ ] IDE integration

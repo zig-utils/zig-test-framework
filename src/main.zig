@@ -1,10 +1,46 @@
 const std = @import("std");
 const lib = @import("lib.zig");
 
+// Global signal handler state
+var shutdown_requested = std.atomic.Value(bool).init(false);
+
+/// Signal handler for SIGINT and SIGTERM
+fn handleSignal(sig: c_int) callconv(.c) void {
+    _ = sig;
+    shutdown_requested.store(true, .monotonic);
+    std.debug.print("\n\nShutdown requested... cleaning up\n", .{});
+}
+
+/// Install signal handlers
+fn installSignalHandlers() !void {
+    const posix = std.posix;
+
+    // Install SIGINT handler (Ctrl+C)
+    const sigint_action = posix.Sigaction{
+        .handler = .{ .handler = handleSignal },
+        .mask = posix.sigemptyset(),
+        .flags = 0,
+    };
+    posix.sigaction(posix.SIG.INT, &sigint_action, null);
+
+    // Install SIGTERM handler
+    const sigterm_action = posix.Sigaction{
+        .handler = .{ .handler = handleSignal },
+        .mask = posix.sigemptyset(),
+        .flags = 0,
+    };
+    posix.sigaction(posix.SIG.TERM, &sigterm_action, null);
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+
+    // Install signal handlers
+    installSignalHandlers() catch |err| {
+        std.debug.print("Warning: Could not install signal handlers: {}\n", .{err});
+    };
 
     // Parse CLI arguments
     var cli_parser = lib.CLI.init(allocator);
@@ -33,6 +69,9 @@ pub fn main() !void {
     var server_running = std.atomic.Value(bool).init(false);
 
     defer {
+        if (shutdown_requested.load(.monotonic)) {
+            std.debug.print("Cleanup complete.\n", .{});
+        }
         if (ui_server) |*server| {
             server_running.store(false, .monotonic);
             server.deinit();
@@ -88,8 +127,54 @@ pub fn main() !void {
 
     var all_passed: bool = undefined;
 
-    if (use_discovery) {
-        // Use test discovery mode
+    // Check if watch mode is enabled
+    if (cli_parser.options.watch) {
+        // Watch mode
+        if (!use_discovery) {
+            std.debug.print("Error: Watch mode requires --test-dir to be specified\n", .{});
+            std.process.exit(1);
+        }
+
+        const test_dir = cli_parser.options.test_dir orelse ".";
+
+        const watch_options = lib.WatchOptions{
+            .watch_dir = test_dir,
+            .pattern = cli_parser.options.pattern,
+            .recursive = !cli_parser.options.no_recursive,
+            .debounce_ms = cli_parser.options.watch_debounce,
+            .clear_screen = true,
+            .verbose = cli_parser.options.verbose,
+        };
+
+        var watch_running = std.atomic.Value(bool).init(true);
+        var watcher = lib.TestWatcher.init(allocator, watch_options, &watch_running);
+
+        // Create coverage options if coverage is enabled
+        const cov_opts = if (cli_parser.options.coverage) lib.CoverageOptions{
+            .enabled = true,
+            .output_dir = cli_parser.options.coverage_dir,
+            .tool = if (std.mem.eql(u8, cli_parser.options.coverage_tool, "grindcov"))
+                .grindcov
+            else
+                .kcov,
+            .html_report = true,
+            .clean = true,
+        } else null;
+
+        const loader_options = lib.LoaderOptions{
+            .bail = cli_parser.options.bail,
+            .filter = cli_parser.options.filter,
+            .verbose = cli_parser.options.verbose,
+            .coverage_options = cov_opts,
+            .ui_server = if (ui_server) |*server| server else null,
+        };
+
+        // Start watching (this will run tests initially and on changes)
+        try watcher.watch(loader_options);
+
+        all_passed = true;
+    } else if (use_discovery) {
+        // Regular discovery mode (non-watch)
         const discovery_options = lib.DiscoveryOptions{
             .root_path = cli_parser.options.test_dir orelse ".",
             .pattern = cli_parser.options.pattern,
