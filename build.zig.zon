@@ -1,0 +1,14 @@
+.{
+    .fingerprint = 0x26d5202ff2b5e864,
+    .name = .testframework,
+    .version = "0.1.0",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "tests",
+        "examples",
+        "README.md",
+        "LICENSE",
+    },
+}

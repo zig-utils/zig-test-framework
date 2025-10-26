@@ -1,0 +1,30 @@
+# Zig build artifacts
+zig-out/
+zig-cache/
+.zig-cache/
+
+# Snapshot files (generated during tests)
+**/__snapshots__/
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS files
+Thumbs.db
+
+# Dependency caches
+.cache/
+
+# Coverage reports
+coverage/
+*.profdata
+*.profraw
+
+# Test outputs
+test-results/
+junit.xml
