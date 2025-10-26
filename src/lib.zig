@@ -14,6 +14,13 @@ pub const coverage = @import("coverage.zig");
 pub const parallel = @import("parallel.zig");
 pub const ui_server = @import("ui_server.zig");
 pub const test_history = @import("test_history.zig");
+pub const snapshot = @import("snapshot.zig");
+pub const watch = @import("watch.zig");
+pub const memory_profiler = @import("memory_profiler.zig");
+pub const config = @import("config.zig");
+pub const async_support = @import("async_support.zig");
+pub const async_test = @import("async_test.zig");
+pub const timeout = @import("timeout.zig");
 
 // Re-export commonly used types and functions
 pub const expect = assertions.expect;
@@ -35,6 +42,16 @@ pub const describeOnly = suite.describeOnly;
 pub const itSkip = suite.itSkip;
 pub const itOnly = suite.itOnly;
 
+// Async test management
+pub const itAsync = suite.itAsync;
+pub const itAsyncTimeout = suite.itAsyncTimeout;
+pub const itAsyncSkip = suite.itAsyncSkip;
+pub const itAsyncOnly = suite.itAsyncOnly;
+
+// Timeout management
+pub const itTimeout = suite.itTimeout;
+pub const describeTimeout = suite.describeTimeout;
+
 pub const TestSuite = suite.TestSuite;
 pub const TestCase = suite.TestCase;
 pub const TestStatus = suite.TestStatus;
@@ -55,6 +72,8 @@ pub const TestResults = reporter.TestResults;
 pub const SpecReporter = reporter.SpecReporter;
 pub const DotReporter = reporter.DotReporter;
 pub const JsonReporter = reporter.JsonReporter;
+pub const TAPReporter = reporter.TAPReporter;
+pub const JUnitReporter = reporter.JUnitReporter;
 pub const Colors = reporter.Colors;
 
 // Matchers
@@ -112,6 +131,52 @@ pub const MultiReporter = ui_server.MultiReporter;
 pub const TestHistory = test_history.TestHistory;
 pub const HistoryEntry = test_history.HistoryEntry;
 pub const TestRecord = test_history.TestRecord;
+
+// Snapshot Testing
+pub const Snapshot = snapshot.Snapshot;
+pub const SnapshotOptions = snapshot.SnapshotOptions;
+pub const createSnapshot = snapshot.snapshot;
+
+// Watch Mode
+pub const TestWatcher = watch.TestWatcher;
+pub const WatchOptions = watch.WatchOptions;
+pub const FileWatcher = watch.FileWatcher;
+
+// Memory Profiling
+pub const MemoryProfiler = memory_profiler.MemoryProfiler;
+pub const MemoryStats = memory_profiler.MemoryStats;
+pub const ProfilingAllocator = memory_profiler.ProfilingAllocator;
+pub const ProfileOptions = memory_profiler.ProfileOptions;
+
+// Configuration
+pub const TestConfig = config.TestConfig;
+pub const ConfigLoader = config.ConfigLoader;
+pub const ConfigFormat = config.ConfigFormat;
+
+// Async Support
+pub const Future = async_support.Future;
+pub const Promise = async_support.Promise;
+pub const AsyncExecutor = async_support.AsyncExecutor;
+pub const runAsync = async_support.runAsync;
+pub const asyncDelay = async_support.delay;
+
+// Async Test Support
+pub const AsyncTestExecutor = async_test.AsyncTestExecutor;
+pub const AsyncTestContext = async_test.AsyncTestContext;
+pub const AsyncTestResult = async_test.AsyncTestResult;
+pub const AsyncHooksManager = async_test.AsyncHooksManager;
+pub const AsyncOptions = async_test.AsyncOptions;
+pub const AsyncStatus = async_test.AsyncStatus;
+pub const AsyncStats = async_test.AsyncStats;
+
+// Timeout Support
+pub const TimeoutContext = timeout.TimeoutContext;
+pub const TimeoutEnforcer = timeout.TimeoutEnforcer;
+pub const TimeoutConfig = timeout.TimeoutConfig;
+pub const GlobalTimeoutConfig = timeout.GlobalTimeoutConfig;
+pub const TimeoutStatus = timeout.TimeoutStatus;
+pub const TimeoutResult = timeout.TimeoutResult;
+pub const SuiteTimeoutTracker = timeout.SuiteTimeoutTracker;
 
 // Utility to get the test registry
 pub fn getRegistry(allocator: std.mem.Allocator) *TestRegistry {

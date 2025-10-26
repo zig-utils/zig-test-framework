@@ -21,6 +21,8 @@ pub const ReporterType = enum {
     spec,
     dot,
     json,
+    tap,
+    junit,
 };
 
 pub const TestRunner = struct {
@@ -55,11 +57,16 @@ pub const TestRunner = struct {
         var dot_reporter = reporter_mod.DotReporter.init(self.allocator, stdout_writer.interface);
         var json_reporter = reporter_mod.JsonReporter.init(self.allocator, stdout_writer.interface);
         defer json_reporter.deinit();
+        var tap_reporter = reporter_mod.TAPReporter.init(self.allocator, stdout_writer.interface);
+        var junit_reporter = reporter_mod.JUnitReporter.init(self.allocator, "test-results.xml");
+        defer junit_reporter.deinit();
 
         var current_reporter: *reporter_mod.Reporter = switch (self.options.reporter_type) {
             .spec => &spec_reporter.reporter,
             .dot => &dot_reporter.reporter,
             .json => &json_reporter.reporter,
+            .tap => &tap_reporter.reporter,
+            .junit => &junit_reporter.reporter,
         };
 
         current_reporter.use_colors = self.options.use_colors;

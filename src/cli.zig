@@ -25,6 +25,20 @@ pub const CLIOptions = struct {
     ui: bool = false,
     ui_port: u16 = 8080,
     ui_host: []const u8 = "127.0.0.1",
+    // Snapshot testing options
+    update_snapshots: bool = false,
+    snapshot_dir: []const u8 = ".snapshots",
+    // Watch mode options
+    watch: bool = false,
+    watch_debounce: u64 = 300,
+    // Memory profiling options
+    profile_memory: bool = false,
+    memory_threshold: usize = 0,
+    fail_on_leak: bool = false,
+    // Configuration file
+    config: ?[]const u8 = null,
+    // JUnit reporter options
+    junit_output: ?[]const u8 = null,
 };
 
 pub const CLIError = error{
@@ -77,8 +91,12 @@ pub const CLI = struct {
                     self.options.reporter = .dot;
                 } else if (std.mem.eql(u8, reporter_name, "json")) {
                     self.options.reporter = .json;
+                } else if (std.mem.eql(u8, reporter_name, "tap")) {
+                    self.options.reporter = .tap;
+                } else if (std.mem.eql(u8, reporter_name, "junit")) {
+                    self.options.reporter = .junit;
                 } else {
-                    std.debug.print("Error: Unknown reporter '{s}'. Available: spec, dot, json\n", .{reporter_name});
+                    std.debug.print("Error: Unknown reporter '{s}'. Available: spec, dot, json, tap, junit\n", .{reporter_name});
                     return CLIError.InvalidArgument;
                 }
             } else if (std.mem.eql(u8, arg, "--filter")) {
@@ -153,6 +171,57 @@ pub const CLI = struct {
                 }
                 i += 1;
                 self.options.ui_host = args[i];
+            } else if (std.mem.eql(u8, arg, "--update-snapshots")) {
+                self.options.update_snapshots = true;
+            } else if (std.mem.eql(u8, arg, "--snapshot-dir")) {
+                if (i + 1 >= args.len) {
+                    std.debug.print("Error: --snapshot-dir requires a value\n", .{});
+                    return CLIError.MissingValue;
+                }
+                i += 1;
+                self.options.snapshot_dir = args[i];
+            } else if (std.mem.eql(u8, arg, "--watch") or std.mem.eql(u8, arg, "-w")) {
+                self.options.watch = true;
+            } else if (std.mem.eql(u8, arg, "--watch-debounce")) {
+                if (i + 1 >= args.len) {
+                    std.debug.print("Error: --watch-debounce requires a value\n", .{});
+                    return CLIError.MissingValue;
+                }
+                i += 1;
+                const debounce_str = args[i];
+                self.options.watch_debounce = std.fmt.parseInt(u64, debounce_str, 10) catch {
+                    std.debug.print("Error: --watch-debounce must be a valid number\n", .{});
+                    return CLIError.InvalidArgument;
+                };
+            } else if (std.mem.eql(u8, arg, "--profile-memory")) {
+                self.options.profile_memory = true;
+            } else if (std.mem.eql(u8, arg, "--memory-threshold")) {
+                if (i + 1 >= args.len) {
+                    std.debug.print("Error: --memory-threshold requires a value\n", .{});
+                    return CLIError.MissingValue;
+                }
+                i += 1;
+                const threshold_str = args[i];
+                self.options.memory_threshold = std.fmt.parseInt(usize, threshold_str, 10) catch {
+                    std.debug.print("Error: --memory-threshold must be a valid number\n", .{});
+                    return CLIError.InvalidArgument;
+                };
+            } else if (std.mem.eql(u8, arg, "--fail-on-leak")) {
+                self.options.fail_on_leak = true;
+            } else if (std.mem.eql(u8, arg, "--config") or std.mem.eql(u8, arg, "-c")) {
+                if (i + 1 >= args.len) {
+                    std.debug.print("Error: --config requires a value\n", .{});
+                    return CLIError.MissingValue;
+                }
+                i += 1;
+                self.options.config = args[i];
+            } else if (std.mem.eql(u8, arg, "--junit-output")) {
+                if (i + 1 >= args.len) {
+                    std.debug.print("Error: --junit-output requires a value\n", .{});
+                    return CLIError.MissingValue;
+                }
+                i += 1;
+                self.options.junit_output = args[i];
             } else if (std.mem.startsWith(u8, arg, "--")) {
                 std.debug.print("Error: Unknown option '{s}'\n", .{arg});
                 return CLIError.InvalidArgument;
@@ -177,10 +246,11 @@ pub const CLI = struct {
             \\    -v, --version           Show version information
             \\    -b, --bail              Stop test execution on first failure
             \\    --filter <pattern>      Run only tests matching pattern
-            \\    --reporter <name>       Set reporter type (spec, dot, json)
+            \\    --reporter <name>       Set reporter type (spec, dot, json, tap, junit)
             \\    --verbose               Enable verbose output
             \\    -q, --quiet             Minimal output
             \\    --no-color              Disable colored output
+            \\    -c, --config <file>     Load configuration from file
             \\
             \\TEST DISCOVERY:
             \\    --test-dir <dir>        Directory to search for tests (default: .)
@@ -201,17 +271,40 @@ pub const CLI = struct {
             \\    --ui-port <port>        UI server port (default: 8080)
             \\    --ui-host <host>        UI server host (default: 127.0.0.1)
             \\
+            \\SNAPSHOT TESTING:
+            \\    --update-snapshots      Update snapshot files instead of comparing
+            \\    --snapshot-dir <dir>    Snapshot directory (default: .snapshots)
+            \\
+            \\WATCH MODE:
+            \\    -w, --watch             Watch files and re-run tests on changes
+            \\    --watch-debounce <ms>   Debounce delay in milliseconds (default: 300)
+            \\
+            \\MEMORY PROFILING:
+            \\    --profile-memory        Enable memory profiling for tests
+            \\    --memory-threshold <N>  Report threshold in bytes (default: 0)
+            \\    --fail-on-leak          Fail tests if memory leaks detected
+            \\
             \\REPORTERS:
             \\    spec                    Default hierarchical reporter with colors
             \\    dot                     Minimal dot-based reporter
             \\    json                    Machine-readable JSON output
+            \\    tap                     TAP (Test Anything Protocol) format
+            \\    junit                   JUnit XML format (use with --junit-output)
+            \\
+            \\JUNIT OPTIONS:
+            \\    --junit-output <file>   Write JUnit XML to file
             \\
             \\EXAMPLES:
-            \\    zig-test                           Run all tests
-            \\    zig-test --filter "user"           Run tests matching "user"
-            \\    zig-test --reporter json           Output results as JSON
-            \\    zig-test --bail                    Stop on first failure
-            \\    zig-test --no-color                Disable colored output
+            \\    zig-test                              Run all tests
+            \\    zig-test --filter "user"              Run tests matching "user"
+            \\    zig-test --reporter tap               Output in TAP format
+            \\    zig-test --reporter junit --junit-output results.xml
+            \\    zig-test --update-snapshots           Update all snapshots
+            \\    zig-test --watch                      Run in watch mode
+            \\    zig-test --profile-memory --fail-on-leak
+            \\    zig-test --parallel --jobs 4          Run with 4 parallel workers
+            \\    zig-test --config zig-test.json       Load config from file
+            \\    zig-test --ui --parallel --coverage   All features together
             \\
         ;
 
@@ -221,7 +314,8 @@ pub const CLI = struct {
     /// Print version information
     pub fn printVersion(self: Self) void {
         _ = self;
-        std.debug.print("Zig Test Framework v0.1.0\n", .{});
+        std.debug.print("Zig Test Framework v2.1.0\n", .{});
+        std.debug.print("Features: Parallel, Coverage, UI, Snapshots, Watch, Memory Profiling, TAP/JUnit\n", .{});
     }
 
     /// Convert CLI options to RunnerOptions

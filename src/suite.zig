@@ -13,6 +13,12 @@ pub const TestFn = *const fn (allocator: std.mem.Allocator) anyerror!void;
 /// Hook function type
 pub const HookFn = *const fn (allocator: std.mem.Allocator) anyerror!void;
 
+/// Test type
+pub const TestType = enum {
+    sync,
+    async_test,
+};
+
 /// Test status
 pub const TestStatus = enum {
     pending,
@@ -26,6 +32,8 @@ pub const TestStatus = enum {
 pub const TestCase = struct {
     name: []const u8,
     test_fn: TestFn,
+    test_type: TestType = .sync,
+    timeout_ms: u64 = 5000,
     status: TestStatus = .pending,
     error_message: ?[]const u8 = null,
     execution_time_ns: u64 = 0,
@@ -38,6 +46,23 @@ pub const TestCase = struct {
         return TestCase{
             .name = name,
             .test_fn = test_fn,
+        };
+    }
+
+    pub fn initWithTimeout(name: []const u8, test_fn: TestFn, timeout_ms: u64) TestCase {
+        return TestCase{
+            .name = name,
+            .test_fn = test_fn,
+            .timeout_ms = timeout_ms,
+        };
+    }
+
+    pub fn initAsync(name: []const u8, test_fn: TestFn, timeout_ms: u64) TestCase {
+        return TestCase{
+            .name = name,
+            .test_fn = test_fn,
+            .test_type = .async_test,
+            .timeout_ms = timeout_ms,
         };
     }
 };
@@ -55,6 +80,7 @@ pub const TestSuite = struct {
     skip: bool = false,
     only: bool = false,
     parent: ?*TestSuite = null,
+    timeout_ms: u64 = 0,
 
     const Self = @This();
 
@@ -341,6 +367,56 @@ pub fn itOnly(allocator: std.mem.Allocator, name: []const u8, test_fn: TestFn) !
     var test_case = TestCase.init(name, test_fn);
     test_case.only = true;
     try registry.registerTest(test_case);
+}
+
+/// Register a test with timeout
+pub fn itTimeout(allocator: std.mem.Allocator, name: []const u8, test_fn: TestFn, timeout_ms: u64) !void {
+    const registry = getRegistry(allocator);
+    const test_case = TestCase.initWithTimeout(name, test_fn, timeout_ms);
+    try registry.registerTest(test_case);
+}
+
+/// Register an async test
+pub fn itAsync(allocator: std.mem.Allocator, name: []const u8, test_fn: TestFn) !void {
+    return itAsyncTimeout(allocator, name, test_fn, 5000);
+}
+
+/// Register an async test with custom timeout
+pub fn itAsyncTimeout(allocator: std.mem.Allocator, name: []const u8, test_fn: TestFn, timeout_ms: u64) !void {
+    const registry = getRegistry(allocator);
+    const test_case = TestCase.initAsync(name, test_fn, timeout_ms);
+    try registry.registerTest(test_case);
+}
+
+/// Skip an async test
+pub fn itAsyncSkip(allocator: std.mem.Allocator, name: []const u8, test_fn: TestFn) !void {
+    const registry = getRegistry(allocator);
+    var test_case = TestCase.initAsync(name, test_fn, 5000);
+    test_case.skip = true;
+    try registry.registerTest(test_case);
+}
+
+/// Only run this async test
+pub fn itAsyncOnly(allocator: std.mem.Allocator, name: []const u8, test_fn: TestFn) !void {
+    const registry = getRegistry(allocator);
+    var test_case = TestCase.initAsync(name, test_fn, 5000);
+    test_case.only = true;
+    try registry.registerTest(test_case);
+}
+
+/// Create a suite with timeout
+pub fn describeTimeout(allocator: std.mem.Allocator, name: []const u8, timeout_ms: u64, func: anytype) !void {
+    const registry = getRegistry(allocator);
+    const new_suite = try TestSuite.init(allocator, name);
+    new_suite.timeout_ms = timeout_ms;
+
+    const previous_suite = registry.current_suite;
+    registry.current_suite = new_suite;
+
+    try func(allocator);
+
+    registry.current_suite = previous_suite;
+    try registry.registerSuite(new_suite);
 }
 
 /// Add beforeEach hook

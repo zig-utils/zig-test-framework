@@ -483,6 +483,262 @@ pub const JsonReporter = struct {
     }
 };
 
+/// TAP (Test Anything Protocol) reporter
+pub const TAPReporter = struct {
+    reporter: Reporter,
+    writer: std.io.Writer,
+    test_count: usize = 0,
+
+    const Self = @This();
+
+    pub fn init(allocator: std.mem.Allocator, writer: std.io.Writer) Self {
+        return .{
+            .reporter = .{
+                .vtable = &.{
+                    .onRunStart = onRunStart,
+                    .onRunEnd = onRunEnd,
+                    .onSuiteStart = onSuiteStart,
+                    .onSuiteEnd = onSuiteEnd,
+                    .onTestStart = onTestStart,
+                    .onTestEnd = onTestEnd,
+                },
+                .allocator = allocator,
+                .use_colors = false,
+            },
+            .writer = writer,
+        };
+    }
+
+    fn onRunStart(reporter: *Reporter, total: usize) !void {
+        const self: *Self = @fieldParentPtr("reporter", reporter);
+        try self.writer.print("TAP version 14\n1..{d}\n", .{total});
+    }
+
+    fn onRunEnd(reporter: *Reporter, results: *TestResults) !void {
+        _ = reporter;
+        _ = results;
+    }
+
+    fn onSuiteStart(reporter: *Reporter, suite_name: []const u8) !void {
+        const self: *Self = @fieldParentPtr("reporter", reporter);
+        try self.writer.print("# Subtest: {s}\n", .{suite_name});
+    }
+
+    fn onSuiteEnd(reporter: *Reporter, suite_name: []const u8) !void {
+        _ = reporter;
+        _ = suite_name;
+    }
+
+    fn onTestStart(reporter: *Reporter, test_name: []const u8) !void {
+        _ = reporter;
+        _ = test_name;
+    }
+
+    fn onTestEnd(reporter: *Reporter, test_case: *const suite.TestCase) !void {
+        const self: *Self = @fieldParentPtr("reporter", reporter);
+        self.test_count += 1;
+
+        const status = switch (test_case.status) {
+            .passed => "ok",
+            .failed => "not ok",
+            .skipped => "ok",
+            else => "not ok",
+        };
+
+        try self.writer.print("{s} {d} - {s}", .{ status, self.test_count, test_case.name });
+
+        if (test_case.status == .skipped) {
+            try self.writer.print(" # SKIP\n", .{});
+        } else if (test_case.status == .failed and test_case.error_message != null) {
+            try self.writer.print("\n  ---\n  message: {s}\n  ...\n", .{test_case.error_message.?});
+        } else {
+            try self.writer.print("\n", .{});
+        }
+    }
+};
+
+/// JUnit XML reporter
+pub const JUnitReporter = struct {
+    reporter: Reporter,
+    allocator: std.mem.Allocator,
+    output_file: []const u8,
+    suites: std.ArrayList(TestSuiteResult),
+    current_suite: ?*TestSuiteResult = null,
+
+    const Self = @This();
+
+    const TestSuiteResult = struct {
+        name: []const u8,
+        tests: std.ArrayList(TestCaseResult),
+        timestamp: i64,
+
+        pub fn deinit(self: *TestSuiteResult, allocator: std.mem.Allocator) void {
+            for (self.tests.items) |*test_case| {
+                allocator.free(test_case.name);
+                if (test_case.error_message) |msg| {
+                    allocator.free(msg);
+                }
+            }
+            self.tests.deinit(allocator);
+            allocator.free(self.name);
+        }
+    };
+
+    const TestCaseResult = struct {
+        name: []const u8,
+        time: f64,
+        status: suite.TestStatus,
+        error_message: ?[]const u8,
+    };
+
+    pub fn init(allocator: std.mem.Allocator, output_file: []const u8) Self {
+        return .{
+            .reporter = .{
+                .vtable = &.{
+                    .onRunStart = onRunStart,
+                    .onRunEnd = onRunEnd,
+                    .onSuiteStart = onSuiteStart,
+                    .onSuiteEnd = onSuiteEnd,
+                    .onTestStart = onTestStart,
+                    .onTestEnd = onTestEnd,
+                },
+                .allocator = allocator,
+                .use_colors = false,
+            },
+            .allocator = allocator,
+            .output_file = output_file,
+            .suites = .empty,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        for (self.suites.items) |*suite_result| {
+            suite_result.deinit(self.allocator);
+        }
+        self.suites.deinit(self.allocator);
+    }
+
+    fn onRunStart(reporter: *Reporter, total: usize) !void {
+        _ = reporter;
+        _ = total;
+    }
+
+    fn onRunEnd(reporter: *Reporter, results: *TestResults) !void {
+        const self: *Self = @fieldParentPtr("reporter", reporter);
+        try self.writeXML(results);
+    }
+
+    fn onSuiteStart(reporter: *Reporter, suite_name: []const u8) !void {
+        const self: *Self = @fieldParentPtr("reporter", reporter);
+
+        const suite_result = try self.allocator.create(TestSuiteResult);
+        suite_result.* = .{
+            .name = try self.allocator.dupe(u8, suite_name),
+            .tests = .empty,
+            .timestamp = std.time.milliTimestamp(),
+        };
+
+        try self.suites.append(self.allocator, suite_result.*);
+        self.current_suite = &self.suites.items[self.suites.items.len - 1];
+    }
+
+    fn onSuiteEnd(reporter: *Reporter, suite_name: []const u8) !void {
+        _ = reporter;
+        _ = suite_name;
+    }
+
+    fn onTestStart(reporter: *Reporter, test_name: []const u8) !void {
+        _ = reporter;
+        _ = test_name;
+    }
+
+    fn onTestEnd(reporter: *Reporter, test_case: *const suite.TestCase) !void {
+        const self: *Self = @fieldParentPtr("reporter", reporter);
+
+        if (self.current_suite) |test_suite| {
+            const time_seconds = @as(f64, @floatFromInt(test_case.execution_time_ns)) / 1_000_000_000.0;
+
+            const error_msg = if (test_case.error_message) |msg|
+                try self.allocator.dupe(u8, msg)
+            else
+                null;
+
+            const test_result = TestCaseResult{
+                .name = try self.allocator.dupe(u8, test_case.name),
+                .time = time_seconds,
+                .status = test_case.status,
+                .error_message = error_msg,
+            };
+
+            try test_suite.tests.append(self.allocator, test_result);
+        }
+    }
+
+    fn writeXML(self: *Self, results: *TestResults) !void {
+        const file = try std.fs.cwd().createFile(self.output_file, .{});
+        defer file.close();
+
+        var buffer = std.ArrayList(u8).empty;
+        defer buffer.deinit(self.allocator);
+
+        const writer = buffer.writer(self.allocator);
+
+        try writer.writeAll("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        try writer.print("<testsuites tests=\"{d}\" failures=\"{d}\" skipped=\"{d}\">\n", .{
+            results.total,
+            results.failed,
+            results.skipped,
+        });
+
+        for (self.suites.items) |suite_result| {
+            var suite_failures: usize = 0;
+            var suite_skipped: usize = 0;
+            var suite_time: f64 = 0.0;
+
+            for (suite_result.tests.items) |test_result| {
+                if (test_result.status == .failed) suite_failures += 1;
+                if (test_result.status == .skipped) suite_skipped += 1;
+                suite_time += test_result.time;
+            }
+
+            try writer.print("  <testsuite name=\"{s}\" tests=\"{d}\" failures=\"{d}\" skipped=\"{d}\" time=\"{d:.6}\">\n", .{
+                suite_result.name,
+                suite_result.tests.items.len,
+                suite_failures,
+                suite_skipped,
+                suite_time,
+            });
+
+            for (suite_result.tests.items) |test_result| {
+                try writer.print("    <testcase name=\"{s}\" time=\"{d:.6}\"", .{
+                    test_result.name,
+                    test_result.time,
+                });
+
+                if (test_result.status == .failed) {
+                    try writer.writeAll(">\n");
+                    try writer.print("      <failure message=\"{s}\"/>\n", .{
+                        test_result.error_message orelse "Test failed",
+                    });
+                    try writer.writeAll("    </testcase>\n");
+                } else if (test_result.status == .skipped) {
+                    try writer.writeAll(">\n");
+                    try writer.writeAll("      <skipped/>\n");
+                    try writer.writeAll("    </testcase>\n");
+                } else {
+                    try writer.writeAll("/>\n");
+                }
+            }
+
+            try writer.writeAll("  </testsuite>\n");
+        }
+
+        try writer.writeAll("</testsuites>\n");
+
+        try file.writeAll(buffer.items);
+    }
+};
+
 // Tests
 test "Colors constants exist" {
     // Just verify the constants are defined
