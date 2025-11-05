@@ -170,6 +170,23 @@ pub fn build(b: *std.Build) void {
     const snapshot_usage_step = b.step("test-snapshots", "Run snapshot usage tests");
     snapshot_usage_step.dependOn(&run_snapshot_usage_tests.step);
 
+    // Time mocking tests (executable)
+    const time_tests = b.addExecutable(.{
+        .name = "time_test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/time_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zig-test-framework", .module = lib_module },
+            },
+        }),
+    });
+    b.installArtifact(time_tests);
+    const run_time_tests = b.addRunArtifact(time_tests);
+    const time_step = b.step("test-time", "Run time mocking tests");
+    time_step.dependOn(&run_time_tests.step);
+
     // Create test step that runs all tests
     const test_step = b.step("test", "Run all unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);

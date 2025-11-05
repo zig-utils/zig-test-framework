@@ -22,6 +22,7 @@ pub const async_support = @import("async_support.zig");
 pub const async_test = @import("async_test.zig");
 pub const timeout = @import("timeout.zig");
 pub const progress = @import("progress.zig");
+pub const time = @import("time.zig");
 
 // Re-export commonly used types and functions
 pub const expect = assertions.expect;
@@ -191,6 +192,28 @@ pub const ProgressBar = progress.ProgressBar;
 pub const ProgressBarStyle = progress.ProgressBarStyle;
 pub const TestProgress = progress.TestProgress;
 pub const MultiSpinner = progress.MultiSpinner;
+
+// Time Mocking
+pub const TimeMock = time.TimeMock;
+pub const DateHelper = time.DateHelper;
+pub const setSystemTime = time.setSystemTime;
+pub const useFakeTimers = time.useFakeTimers;
+pub const useRealTimers = time.useRealTimers;
+pub const advanceTimersByTime = time.advanceTimersByTime;
+pub const createDateHelper = time.createDateHelper;
+pub const cleanupTimeMock = time.cleanupTimeMock;
+
+// Jest-compatible time functions
+pub const jest = struct {
+    pub const setSystemTime = time.jest.setSystemTime;
+    pub const useFakeTimers = time.jest.useFakeTimers;
+    pub const useRealTimers = time.jest.useRealTimers;
+    pub const now = time.jest.now;
+    pub const advanceTimersByTime = time.jest.advanceTimersByTime;
+    pub const clearAllTimers = time.jest.clearAllTimers;
+    pub const runAllTimers = time.jest.runAllTimers;
+    pub const runOnlyPendingTimers = time.jest.runOnlyPendingTimers;
+};
 
 // Utility to get the test registry
 pub fn getRegistry(allocator: std.mem.Allocator) *TestRegistry {
