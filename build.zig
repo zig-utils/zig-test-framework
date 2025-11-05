@@ -79,15 +79,22 @@ pub fn build(b: *std.Build) void {
     });
     const run_matchers_tests = b.addRunArtifact(matchers_tests);
 
-    // Hooks tests
-    const hooks_tests = b.addTest(.{
+    // Hooks tests (executable, not unit test)
+    const hooks_tests = b.addExecutable(.{
+        .name = "hooks_test",
         .root_module = b.createModule(.{
             .root_source_file = b.path("tests/hooks_test.zig"),
             .target = target,
             .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zig-test-framework", .module = lib_module },
+            },
         }),
     });
+    b.installArtifact(hooks_tests);
     const run_hooks_tests = b.addRunArtifact(hooks_tests);
+    const hooks_step = b.step("test-hooks", "Run lifecycle hooks tests");
+    hooks_step.dependOn(&run_hooks_tests.step);
 
     // Reporter tests
     const reporter_tests = b.addTest(.{
@@ -129,6 +136,40 @@ pub fn build(b: *std.Build) void {
     });
     const run_mock_tests = b.addRunArtifact(mock_tests);
 
+    // Comprehensive mock tests (executable)
+    const comprehensive_mock_tests = b.addExecutable(.{
+        .name = "comprehensive_mock_test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/comprehensive_mock_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zig-test-framework", .module = lib_module },
+            },
+        }),
+    });
+    b.installArtifact(comprehensive_mock_tests);
+    const run_comprehensive_mock_tests = b.addRunArtifact(comprehensive_mock_tests);
+    const comprehensive_mock_step = b.step("test-mocks", "Run comprehensive mock tests");
+    comprehensive_mock_step.dependOn(&run_comprehensive_mock_tests.step);
+
+    // Snapshot usage tests (executable)
+    const snapshot_usage_tests = b.addExecutable(.{
+        .name = "snapshot_usage_test",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/snapshot_usage_test.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "zig-test-framework", .module = lib_module },
+            },
+        }),
+    });
+    b.installArtifact(snapshot_usage_tests);
+    const run_snapshot_usage_tests = b.addRunArtifact(snapshot_usage_tests);
+    const snapshot_usage_step = b.step("test-snapshots", "Run snapshot usage tests");
+    snapshot_usage_step.dependOn(&run_snapshot_usage_tests.step);
+
     // Create test step that runs all tests
     const test_step = b.step("test", "Run all unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
@@ -136,7 +177,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_assertions_tests.step);
     test_step.dependOn(&run_suite_tests.step);
     test_step.dependOn(&run_matchers_tests.step);
-    test_step.dependOn(&run_hooks_tests.step);
+    // Note: hooks_test is an executable, run with 'zig build test-hooks'
     test_step.dependOn(&run_reporter_tests.step);
     test_step.dependOn(&run_cli_tests.step);
     test_step.dependOn(&run_filter_tests.step);
