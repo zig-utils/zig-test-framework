@@ -21,6 +21,7 @@ pub const config = @import("config.zig");
 pub const async_support = @import("async_support.zig");
 pub const async_test = @import("async_test.zig");
 pub const timeout = @import("timeout.zig");
+pub const progress = @import("progress.zig");
 
 // Re-export commonly used types and functions
 pub const expect = assertions.expect;
@@ -182,6 +183,14 @@ pub const GlobalTimeoutConfig = timeout.GlobalTimeoutConfig;
 pub const TimeoutStatus = timeout.TimeoutStatus;
 pub const TimeoutResult = timeout.TimeoutResult;
 pub const SuiteTimeoutTracker = timeout.SuiteTimeoutTracker;
+
+// Progress Indicators
+pub const Spinner = progress.Spinner;
+pub const SpinnerStyle = progress.SpinnerStyle;
+pub const ProgressBar = progress.ProgressBar;
+pub const ProgressBarStyle = progress.ProgressBarStyle;
+pub const TestProgress = progress.TestProgress;
+pub const MultiSpinner = progress.MultiSpinner;
 
 // Utility to get the test registry
 pub fn getRegistry(allocator: std.mem.Allocator) *TestRegistry {

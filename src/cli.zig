@@ -39,6 +39,8 @@ pub const CLIOptions = struct {
     config: ?[]const u8 = null,
     // JUnit reporter options
     junit_output: ?[]const u8 = null,
+    // Timeout options
+    timeout: ?u64 = null, // Global timeout in milliseconds
 };
 
 pub const CLIError = error{
@@ -99,9 +101,9 @@ pub const CLI = struct {
                     std.debug.print("Error: Unknown reporter '{s}'. Available: spec, dot, json, tap, junit\n", .{reporter_name});
                     return CLIError.InvalidArgument;
                 }
-            } else if (std.mem.eql(u8, arg, "--filter")) {
+            } else if (std.mem.eql(u8, arg, "--filter") or std.mem.eql(u8, arg, "--grep")) {
                 if (i + 1 >= args.len) {
-                    std.debug.print("Error: --filter requires a value\n", .{});
+                    std.debug.print("Error: --filter/--grep requires a value\n", .{});
                     return CLIError.MissingValue;
                 }
                 i += 1;
@@ -171,7 +173,7 @@ pub const CLI = struct {
                 }
                 i += 1;
                 self.options.ui_host = args[i];
-            } else if (std.mem.eql(u8, arg, "--update-snapshots")) {
+            } else if (std.mem.eql(u8, arg, "--update-snapshots") or std.mem.eql(u8, arg, "-u")) {
                 self.options.update_snapshots = true;
             } else if (std.mem.eql(u8, arg, "--snapshot-dir")) {
                 if (i + 1 >= args.len) {
@@ -222,6 +224,17 @@ pub const CLI = struct {
                 }
                 i += 1;
                 self.options.junit_output = args[i];
+            } else if (std.mem.eql(u8, arg, "--timeout")) {
+                if (i + 1 >= args.len) {
+                    std.debug.print("Error: --timeout requires a value\n", .{});
+                    return CLIError.MissingValue;
+                }
+                i += 1;
+                const timeout_str = args[i];
+                self.options.timeout = std.fmt.parseInt(u64, timeout_str, 10) catch {
+                    std.debug.print("Error: --timeout must be a valid number (milliseconds)\n", .{});
+                    return CLIError.InvalidArgument;
+                };
             } else if (std.mem.startsWith(u8, arg, "--")) {
                 std.debug.print("Error: Unknown option '{s}'\n", .{arg});
                 return CLIError.InvalidArgument;
@@ -246,10 +259,12 @@ pub const CLI = struct {
             \\    -v, --version           Show version information
             \\    -b, --bail              Stop test execution on first failure
             \\    --filter <pattern>      Run only tests matching pattern
+            \\    --grep <pattern>        Same as --filter (alias)
             \\    --reporter <name>       Set reporter type (spec, dot, json, tap, junit)
             \\    --verbose               Enable verbose output
             \\    -q, --quiet             Minimal output
             \\    --no-color              Disable colored output
+            \\    --timeout <ms>          Global timeout for all tests in milliseconds
             \\    -c, --config <file>     Load configuration from file
             \\
             \\TEST DISCOVERY:
@@ -272,7 +287,7 @@ pub const CLI = struct {
             \\    --ui-host <host>        UI server host (default: 127.0.0.1)
             \\
             \\SNAPSHOT TESTING:
-            \\    --update-snapshots      Update snapshot files instead of comparing
+            \\    -u, --update-snapshots  Update snapshot files instead of comparing
             \\    --snapshot-dir <dir>    Snapshot directory (default: .snapshots)
             \\
             \\WATCH MODE:
@@ -297,10 +312,13 @@ pub const CLI = struct {
             \\EXAMPLES:
             \\    zig-test                              Run all tests
             \\    zig-test --filter "user"              Run tests matching "user"
+            \\    zig-test --grep "auth"                Run tests matching "auth"
             \\    zig-test --reporter tap               Output in TAP format
             \\    zig-test --reporter junit --junit-output results.xml
+            \\    zig-test -u                           Update all snapshots (short flag)
             \\    zig-test --update-snapshots           Update all snapshots
             \\    zig-test --watch                      Run in watch mode
+            \\    zig-test --timeout 10000              Set 10s timeout for all tests
             \\    zig-test --profile-memory --fail-on-leak
             \\    zig-test --parallel --jobs 4          Run with 4 parallel workers
             \\    zig-test --config zig-test.json       Load config from file
@@ -314,8 +332,8 @@ pub const CLI = struct {
     /// Print version information
     pub fn printVersion(self: Self) void {
         _ = self;
-        std.debug.print("Zig Test Framework v2.1.0\n", .{});
-        std.debug.print("Features: Parallel, Coverage, UI, Snapshots, Watch, Memory Profiling, TAP/JUnit\n", .{});
+        std.debug.print("Zig Test Framework v2.5.0\n", .{});
+        std.debug.print("Features: Parallel, Coverage, UI, Snapshots, Watch, Memory Profiling, TAP/JUnit, Progress Indicators, Timeout\n", .{});
     }
 
     /// Convert CLI options to RunnerOptions
@@ -495,4 +513,26 @@ test "CLI parse jobs" {
     const args = [_][]const u8{ "zig-test", "--jobs", "4" };
     try cli.parse(&args);
     try std.testing.expectEqual(@as(?usize, 4), cli.options.jobs);
+}
+
+test "CLI parse grep alias" {
+    var cli = CLI.init(std.testing.allocator);
+    const args = [_][]const u8{ "zig-test", "--grep", "auth" };
+    try cli.parse(&args);
+    try std.testing.expect(cli.options.filter != null);
+    try std.testing.expectEqualStrings("auth", cli.options.filter.?);
+}
+
+test "CLI parse timeout" {
+    var cli = CLI.init(std.testing.allocator);
+    const args = [_][]const u8{ "zig-test", "--timeout", "5000" };
+    try cli.parse(&args);
+    try std.testing.expectEqual(@as(?u64, 5000), cli.options.timeout);
+}
+
+test "CLI parse update-snapshots short flag" {
+    var cli = CLI.init(std.testing.allocator);
+    const args = [_][]const u8{ "zig-test", "-u" };
+    try cli.parse(&args);
+    try std.testing.expect(cli.options.update_snapshots);
 }
