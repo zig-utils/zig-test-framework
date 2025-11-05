@@ -11,15 +11,16 @@ A modern, feature-rich testing framework for Zig inspired by Jest, Vitest, and B
 - **Familiar API** - Describe/it syntax similar to Jest and Vitest
 - **Rich Assertions** - Comprehensive assertion library with `.expect()` and matchers
 - **Error Assertions** - `toThrow()` and `toThrowError()` for testing error handling
-- **Test Hooks** - beforeEach, afterEach, beforeAll, afterAll support (with async support)
+- **Lifecycle Hooks** - beforeEach, afterEach, beforeAll, afterAll support (with async support and nested scoping)
 - **Multiple Reporters** - Spec, Dot, JSON, TAP, and JUnit reporters built-in
-- **Mocking & Spying** - Function mocking and call tracking
+- **Mocking & Spying** - Full Jest-compatible mocking API with call tracking, return values, and spies
+- **Snapshot Testing** - Compare outputs against saved snapshots with multiple formats (JSON, pretty text, compact)
+- **Time Mocking** - Control time in tests with `setSystemTime()` and Jest-compatible time APIs
 - **Advanced Matchers** - Floating-point comparison, array/struct matchers, and more
 - **CLI Support** - Full command-line interface with filtering and options
 - **Nested Suites** - Support for nested describe blocks
 - **Test Filtering** - Skip tests with `.skip()` or focus with `.only()`
 - **Colorized Output** - Beautiful, readable test output with colors
-- **Snapshot Testing** - Compare outputs against saved snapshots
 - **Watch Mode** - Automatically re-run tests on file changes
 - **Memory Profiling** - Track memory usage and detect leaks
 - **Parallel Execution** - Run tests in parallel for faster execution
@@ -325,25 +326,89 @@ try ztf.describe(allocator, "User Service", struct {
 
 ### Mocking and Spying
 
+Full Jest-compatible mocking API:
+
 ```zig
 // Create a mock
 var mock_fn = ztf.createMock(alloc, i32);
 defer mock_fn.deinit();
 
-// Record calls
+// Record calls and assert
 try mock_fn.recordCall("arg1");
-try mock_fn.recordCall("arg2");
-
-// Assert on calls
 try mock_fn.toHaveBeenCalled();
-try mock_fn.toHaveBeenCalledTimes(2);
+try mock_fn.toHaveBeenCalledTimes(1);
 try mock_fn.toHaveBeenCalledWith("arg1");
-try mock_fn.toHaveBeenLastCalledWith("arg2");
 
 // Mock return values
-try mock_fn.mockReturnValue(42);
-const value = mock_fn.getReturnValue();
+_ = try mock_fn.mockReturnValue(42);
+_ = try mock_fn.mockReturnValueOnce(100);
+const value = mock_fn.getReturnValue(); // Returns 100 first time, then 42
+
+// Spy on existing functions
+const original: i32 = 99;
+var spy = ztf.createSpy(alloc, i32, original);
+defer spy.deinit();
+
+try spy.call("test");
+try spy.toHaveBeenCalled();
+const restored = spy.mockRestore();
 ```
+
+See [docs/mocks.md](docs/mocks.md) for complete mocking documentation.
+
+### Snapshot Testing
+
+Capture and compare test outputs:
+
+```zig
+// Create a snapshot
+var snap = ztf.createSnapshot(alloc, "user_test", .{
+    .update = true,
+    .format = .json,
+});
+
+// Match against snapshot
+const user = User{ .name = "Alice", .age = 30 };
+try snap.match(user);
+
+// Named snapshots
+try snap.matchNamed("initial_state", initial);
+try snap.matchNamed("after_update", updated);
+
+// String snapshots
+try snap.matchString("Expected output");
+```
+
+Snapshots are stored in `.snapshots/` directory. Run tests with `update: true` to create/update snapshots.
+
+See [docs/snapshots.md](docs/snapshots.md) for complete snapshot documentation.
+
+### Time Mocking
+
+Control time in your tests:
+
+```zig
+// Set specific time (Jan 1, 2020)
+ztf.setSystemTime(alloc, 1577836800000);
+
+const year = ztf.DateHelper.getYear(ztf.time.now(alloc));
+try ztf.expect(alloc, year).toBe(@as(u16, 2020));
+
+// Advance time
+ztf.advanceTimersByTime(alloc, 60000); // Advance 1 minute
+
+// Jest-compatible API
+ztf.jest.useFakeTimers(alloc);
+ztf.jest.setSystemTime(alloc, 1577836800000);
+const current = ztf.jest.now(alloc);
+ztf.jest.advanceTimersByTime(alloc, 5000);
+ztf.jest.useRealTimers(alloc);
+
+// Reset to real time
+ztf.setSystemTime(alloc, null);
+```
+
+See [docs/dates-and-times.md](docs/dates-and-times.md) for complete time mocking documentation.
 
 ### Test Filtering
 
@@ -682,7 +747,29 @@ zig build examples
 
 ## Requirements
 
-- Zig 0.13.0 or later
+- Zig 0.15.1 or later
+
+## Documentation
+
+Comprehensive guides and API documentation:
+
+### Core Features
+- **[Lifecycle Hooks](docs/lifecycle-hooks.md)** - beforeAll, beforeEach, afterEach, afterAll with nested scoping
+- **[Mocking & Spying](docs/mocks.md)** - Complete Jest-compatible mocking API with 20+ methods
+- **[Snapshot Testing](docs/snapshots.md)** - Multiple formats, named snapshots, and diff visualization
+- **[Date & Time Mocking](docs/dates-and-times.md)** - Control time with `setSystemTime()` and Jest-compatible APIs
+
+### Additional Resources
+- **[Examples](examples/)** - Basic and advanced usage examples
+- **[Test Files](tests/)** - Comprehensive test suites demonstrating all features
+- **[API Reference](src/)** - Full source code documentation
+
+### Quick Links
+- **Run specific test suites:**
+  - `zig build test-hooks` - Lifecycle hooks tests
+  - `zig build test-mocks` - Mocking and spying tests
+  - `zig build test-snapshots` - Snapshot testing tests
+  - `zig build test-time` - Time mocking tests
 
 ## Contributing
 
