@@ -13,9 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: mlugg/setup-zig@v2
+      - uses: home-lang/pantry-setup@v1
         with:
-          version: '0.15.1'
+          packages: ziglang.org@0.15.1
       - run: zig build
       - run: zig build test
       - name: Create Release
