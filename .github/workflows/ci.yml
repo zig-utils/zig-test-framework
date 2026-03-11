@@ -13,7 +13,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        zig-version: ['0.15.1']
+        zig-version: ['latest']
       fail-fast: false
 
     steps:
@@ -48,7 +48,7 @@ jobs:
       - name: Setup Zig
         uses: home-lang/pantry-setup@v1
         with:
-          packages: ziglang.org@0.15.1
+          packages: ziglang.org@latest
 
       - name: Check formatting
         run: zig fmt --check .
@@ -64,7 +64,7 @@ jobs:
       - name: Setup Zig
         uses: home-lang/pantry-setup@v1
         with:
-          packages: ziglang.org@0.15.1
+          packages: ziglang.org@latest
 
       - name: Generate docs
         run: zig build-lib -femit-docs src/lib.zig
@@ -86,7 +86,7 @@ jobs:
       - name: Setup Zig
         uses: home-lang/pantry-setup@v1
         with:
-          packages: ziglang.org@0.15.1
+          packages: ziglang.org@latest
 
       - name: Install kcov
         continue-on-error: true
