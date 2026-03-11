@@ -515,19 +515,44 @@ pub const SnapshotCleanup = struct {
     }
 
     /// Find and remove unused snapshots
-    /// Note: Directory iteration requires Io in Zig 0.16, stubbed for now
     pub fn cleanupUnused(self: *Self) !usize {
-        _ = self;
-        // TODO: Re-implement with std.Io.Dir when Io is available
-        return 0;
+        var dir = compat.DirIterator.open(self.snapshot_dir) catch return 0;
+        defer dir.close();
+
+        var removed: usize = 0;
+        while (try dir.next()) |entry| {
+            if (entry.kind != .file) continue;
+            if (!std.mem.endsWith(u8, entry.name, ".snap")) continue;
+
+            // Check if this snapshot is marked as used
+            if (!self.used_snapshots.contains(entry.name)) {
+                // Delete unused snapshot
+                const full_path = try std.fs.path.join(self.allocator, &.{ self.snapshot_dir, entry.name });
+                defer self.allocator.free(full_path);
+                compat.deleteFile(self.allocator, full_path) catch {};
+                removed += 1;
+            }
+        }
+        return removed;
     }
 
     /// List all snapshot files
-    /// Note: Directory iteration requires Io in Zig 0.16, stubbed for now
     pub fn listSnapshots(self: *Self) !std.ArrayList([]const u8) {
-        _ = self;
-        // TODO: Re-implement with std.Io.Dir when Io is available
-        return std.ArrayList([]const u8).empty;
+        var result = std.ArrayList([]const u8).empty;
+        errdefer {
+            for (result.items) |item| self.allocator.free(item);
+            result.deinit(self.allocator);
+        }
+
+        var dir = compat.DirIterator.open(self.snapshot_dir) catch return result;
+        defer dir.close();
+
+        while (try dir.next()) |entry| {
+            if (entry.kind != .file) continue;
+            if (!std.mem.endsWith(u8, entry.name, ".snap")) continue;
+            try result.append(self.allocator, try self.allocator.dupe(u8, entry.name));
+        }
+        return result;
     }
 };
 
