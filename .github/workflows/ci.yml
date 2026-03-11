@@ -89,17 +89,22 @@ jobs:
           packages: ziglang.org@0.15.1
 
       - name: Install kcov
+        continue-on-error: true
+        id: install-kcov
         run: |
           sudo apt-get update
           sudo apt-get install -y kcov
 
       - name: Build framework
+        if: steps.install-kcov.outcome == 'success'
         run: zig build
 
       - name: Run tests with coverage
+        if: steps.install-kcov.outcome == 'success'
         run: ./zig-out/bin/zig-test --test-dir tests --coverage
 
       - name: Upload coverage to Codecov
+        if: steps.install-kcov.outcome == 'success'
         uses: codecov/codecov-action@v4
         with:
           directory: ./coverage
@@ -107,7 +112,12 @@ jobs:
           verbose: true
 
       - name: Upload coverage artifact
+        if: steps.install-kcov.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage/
+
+      - name: Coverage skipped
+        if: steps.install-kcov.outcome != 'success'
+        run: echo "kcov not available on this platform, skipping coverage"

@@ -178,7 +178,7 @@ pub fn main() !void {
             var mock_fn = ztf.createMock(alloc, i32);
             defer mock_fn.deinit();
 
-            try mock_fn.mockReturnValue(42);
+            _ = try mock_fn.mockReturnValue(42);
             const value = mock_fn.getReturnValue();
 
             try ztf.expect(alloc, value).toBe(@as(?i32, 42));

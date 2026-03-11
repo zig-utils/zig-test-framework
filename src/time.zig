@@ -211,8 +211,8 @@ pub const DateHelper = struct {
         // Simple timestamp calculation (approximate)
         // This is a simplified version - for production use proper date library
         const days_since_epoch = @as(i64, year - 1970) * 365 +
-                                 @as(i64, month - 1) * 30 +
-                                 @as(i64, day);
+            @as(i64, month - 1) * 30 +
+            @as(i64, day);
         return days_since_epoch * 24 * 60 * 60 * 1000;
     }
 
@@ -271,10 +271,10 @@ pub const DateHelper = struct {
 
         // Convert to milliseconds
         const total_millis = days * 24 * 60 * 60 * 1000 +
-                           @as(i64, hours) * 60 * 60 * 1000 +
-                           @as(i64, minutes) * 60 * 1000 +
-                           @as(i64, seconds) * 1000 +
-                           @as(i64, millis);
+            @as(i64, hours) * 60 * 60 * 1000 +
+            @as(i64, minutes) * 60 * 1000 +
+            @as(i64, seconds) * 1000 +
+            @as(i64, millis);
 
         return total_millis;
     }

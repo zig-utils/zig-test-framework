@@ -133,13 +133,14 @@ pub const UIServer = struct {
         const html = @embedFile("ui/index.html");
 
         var response_buffer: [2048]u8 = undefined;
-        const response = try std.fmt.bufPrint(&response_buffer,
+        const response = try std.fmt.bufPrint(
+            &response_buffer,
             "HTTP/1.1 200 OK\r\n" ++
-            "Content-Type: text/html; charset=utf-8\r\n" ++
-            "Content-Length: {d}\r\n" ++
-            "Connection: close\r\n" ++
-            "\r\n" ++
-            "{s}",
+                "Content-Type: text/html; charset=utf-8\r\n" ++
+                "Content-Length: {d}\r\n" ++
+                "Connection: close\r\n" ++
+                "\r\n" ++
+                "{s}",
             .{ html.len, html },
         );
 
@@ -179,13 +180,14 @@ pub const UIServer = struct {
         const json_response = "{\"status\": \"ok\", \"message\": \"Tests API\"}";
 
         var response_buffer: [1024]u8 = undefined;
-        const response = try std.fmt.bufPrint(&response_buffer,
+        const response = try std.fmt.bufPrint(
+            &response_buffer,
             "HTTP/1.1 200 OK\r\n" ++
-            "Content-Type: application/json\r\n" ++
-            "Content-Length: {d}\r\n" ++
-            "Connection: close\r\n" ++
-            "\r\n" ++
-            "{s}",
+                "Content-Type: application/json\r\n" ++
+                "Content-Length: {d}\r\n" ++
+                "Connection: close\r\n" ++
+                "\r\n" ++
+                "{s}",
             .{ json_response.len, json_response },
         );
 
@@ -220,13 +222,14 @@ pub const UIServer = struct {
             try writer.writeAll("]}");
 
             var response_buffer: [2048]u8 = undefined;
-            const response = try std.fmt.bufPrint(&response_buffer,
+            const response = try std.fmt.bufPrint(
+                &response_buffer,
                 "HTTP/1.1 200 OK\r\n" ++
-                "Content-Type: application/json\r\n" ++
-                "Content-Length: {d}\r\n" ++
-                "Connection: close\r\n" ++
-                "\r\n" ++
-                "{s}",
+                    "Content-Type: application/json\r\n" ++
+                    "Content-Length: {d}\r\n" ++
+                    "Connection: close\r\n" ++
+                    "\r\n" ++
+                    "{s}",
                 .{ buffer.items.len, buffer.items },
             );
 
@@ -235,13 +238,14 @@ pub const UIServer = struct {
             const json_response = "{\"files\":[]}";
 
             var response_buffer: [512]u8 = undefined;
-            const response = try std.fmt.bufPrint(&response_buffer,
+            const response = try std.fmt.bufPrint(
+                &response_buffer,
                 "HTTP/1.1 200 OK\r\n" ++
-                "Content-Type: application/json\r\n" ++
-                "Content-Length: {d}\r\n" ++
-                "Connection: close\r\n" ++
-                "\r\n" ++
-                "{s}",
+                    "Content-Type: application/json\r\n" ++
+                    "Content-Length: {d}\r\n" ++
+                    "Connection: close\r\n" ++
+                    "\r\n" ++
+                    "{s}",
                 .{ json_response.len, json_response },
             );
 
@@ -255,13 +259,14 @@ pub const UIServer = struct {
         const html = "<html><body><h1>404 Not Found</h1></body></html>";
 
         var response_buffer: [512]u8 = undefined;
-        const response = try std.fmt.bufPrint(&response_buffer,
+        const response = try std.fmt.bufPrint(
+            &response_buffer,
             "HTTP/1.1 404 Not Found\r\n" ++
-            "Content-Type: text/html\r\n" ++
-            "Content-Length: {d}\r\n" ++
-            "Connection: close\r\n" ++
-            "\r\n" ++
-            "{s}",
+                "Content-Type: text/html\r\n" ++
+                "Content-Length: {d}\r\n" ++
+                "Connection: close\r\n" ++
+                "\r\n" ++
+                "{s}",
             .{ html.len, html },
         );
 
@@ -395,7 +400,7 @@ pub const UIReporter = struct {
 /// Multi-Reporter - broadcasts events to multiple reporters
 pub const MultiReporter = struct {
     reporter: reporter_mod.Reporter,
-    reporters: []* reporter_mod.Reporter,
+    reporters: []*reporter_mod.Reporter,
     allocator: std.mem.Allocator,
 
     const Self = @This();

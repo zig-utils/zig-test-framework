@@ -5,7 +5,6 @@ const std = @import("std");
 /// NOTE: Zig's async/await is still experimental and subject to change.
 /// This module provides basic utilities for async testing until Zig's
 /// async stabilizes. For now, we provide thread-based async simulation.
-
 /// Async test function signature
 pub const AsyncTestFn = *const fn (allocator: std.mem.Allocator) anyerror!void;
 

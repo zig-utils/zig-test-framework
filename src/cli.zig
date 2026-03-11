@@ -441,7 +441,8 @@ test "CLI parse multiple options" {
     var cli = CLI.init(std.testing.allocator);
     const args = [_][]const u8{
         "zig-test",
-        "--test-dir", "tests",
+        "--test-dir",
+        "tests",
         "--coverage",
         "--bail",
         "--verbose",
