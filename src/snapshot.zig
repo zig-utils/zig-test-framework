@@ -1,4 +1,5 @@
 const std = @import("std");
+const compat = @import("compat.zig");
 
 /// Snapshot format type
 pub const SnapshotFormat = enum {
@@ -192,12 +193,12 @@ pub const Snapshot = struct {
     /// Format a value for snapshotting
     fn formatValue(self: *Self, value: anytype) ![]const u8 {
         var buffer = std.ArrayList(u8).empty;
-        const writer = buffer.writer(self.allocator);
+        var writer = compat.ArrayListWriter.init(&buffer, self.allocator);
 
         switch (self.options.format) {
-            .pretty_text => try self.formatValuePretty(writer, value),
-            .compact_text => try self.formatValueCompact(writer, value),
-            .json => try self.formatValueJson(writer, value),
+            .pretty_text => try self.formatValuePretty(&writer, value),
+            .compact_text => try self.formatValueCompact(&writer, value),
+            .json => try self.formatValueJson(&writer, value),
             .raw => try writer.print("{any}", .{value}),
         }
 
@@ -467,7 +468,7 @@ pub const Snapshot = struct {
 
     /// Read snapshot from file
     fn readSnapshot(self: *Self, path: []const u8) ![]const u8 {
-        const file = std.fs.cwd().openFile(path, .{}) catch |err| {
+        return compat.readFileAlloc(self.allocator, path) catch |err| {
             if (err == error.FileNotFound) {
                 std.debug.print("\nSnapshot file not found: {s}\n", .{path});
                 std.debug.print("Run with --update-snapshots to create it.\n", .{});
@@ -475,20 +476,14 @@ pub const Snapshot = struct {
             }
             return err;
         };
-        defer file.close();
-
-        return try file.readToEndAlloc(self.allocator, 10 * 1024 * 1024); // 10MB max
     }
 
     /// Write snapshot to file
     fn writeSnapshot(self: *Self, path: []const u8, content: []const u8) !void {
         // Ensure snapshot directory exists
-        std.fs.cwd().makePath(self.options.snapshot_dir) catch {};
+        compat.makePath(self.allocator, self.options.snapshot_dir) catch {};
 
-        const file = try std.fs.cwd().createFile(path, .{});
-        defer file.close();
-
-        try file.writeAll(content);
+        try compat.writeFile(self.allocator, path, content);
 
         std.debug.print("Snapshot updated: {s}\n", .{path});
     }
@@ -520,50 +515,19 @@ pub const SnapshotCleanup = struct {
     }
 
     /// Find and remove unused snapshots
+    /// Note: Directory iteration requires Io in Zig 0.16, stubbed for now
     pub fn cleanupUnused(self: *Self) !usize {
-        var removed_count: usize = 0;
-
-        var dir = try std.fs.cwd().openDir(self.snapshot_dir, .{ .iterate = true });
-        defer dir.close();
-
-        var iterator = dir.iterate();
-        while (try iterator.next()) |entry| {
-            if (entry.kind != .file) continue;
-            if (!std.mem.endsWith(u8, entry.name, ".snap")) continue;
-
-            const is_used = self.used_snapshots.get(entry.name) orelse false;
-            if (!is_used) {
-                try dir.deleteFile(entry.name);
-                std.debug.print("Removed unused snapshot: {s}\n", .{entry.name});
-                removed_count += 1;
-            }
-        }
-
-        return removed_count;
+        _ = self;
+        // TODO: Re-implement with std.Io.Dir when Io is available
+        return 0;
     }
 
     /// List all snapshot files
+    /// Note: Directory iteration requires Io in Zig 0.16, stubbed for now
     pub fn listSnapshots(self: *Self) !std.ArrayList([]const u8) {
-        var snapshots = std.ArrayList([]const u8).empty;
-
-        var dir = std.fs.cwd().openDir(self.snapshot_dir, .{ .iterate = true }) catch |err| {
-            if (err == error.FileNotFound) {
-                return snapshots;
-            }
-            return err;
-        };
-        defer dir.close();
-
-        var iterator = dir.iterate();
-        while (try iterator.next()) |entry| {
-            if (entry.kind != .file) continue;
-            if (!std.mem.endsWith(u8, entry.name, ".snap")) continue;
-
-            const name = try self.allocator.dupe(u8, entry.name);
-            try snapshots.append(self.allocator, name);
-        }
-
-        return snapshots;
+        _ = self;
+        // TODO: Re-implement with std.Io.Dir when Io is available
+        return std.ArrayList([]const u8).empty;
     }
 };
 
@@ -628,7 +592,7 @@ test "Snapshot JSON format" {
     try snap.match(value);
 
     // Cleanup
-    std.fs.cwd().deleteFile(".snapshots/test_snapshot_json.snap") catch {};
+    compat.deleteFile(std.testing.allocator,".snapshots/test_snapshot_json.snap") catch {};
 }
 
 test "Snapshot mismatch detection" {
@@ -645,7 +609,7 @@ test "Snapshot mismatch detection" {
     try std.testing.expectError(error.SnapshotMismatch, result);
 
     // Cleanup
-    std.fs.cwd().deleteFile(".snapshots/test_mismatch.snap") catch {};
+    compat.deleteFile(std.testing.allocator,".snapshots/test_mismatch.snap") catch {};
 }
 
 test "Snapshot diff generation" {
@@ -675,8 +639,8 @@ test "Named snapshots" {
     try snap2.matchStringNamed("second", "Second snapshot");
 
     // Cleanup
-    std.fs.cwd().deleteFile(".snapshots/test_named_first.snap") catch {};
-    std.fs.cwd().deleteFile(".snapshots/test_named_second.snap") catch {};
+    compat.deleteFile(std.testing.allocator,".snapshots/test_named_first.snap") catch {};
+    compat.deleteFile(std.testing.allocator,".snapshots/test_named_second.snap") catch {};
 }
 
 test "Snapshot cleanup - list snapshots" {
@@ -700,7 +664,7 @@ test "Snapshot cleanup - list snapshots" {
     try std.testing.expect(snapshots.items.len > 0);
 
     // Cleanup
-    std.fs.cwd().deleteFile(".snapshots/cleanup_test_1.snap") catch {};
+    compat.deleteFile(std.testing.allocator,".snapshots/cleanup_test_1.snap") catch {};
 }
 
 test "Snapshot cleanup - remove unused" {
@@ -724,7 +688,7 @@ test "Snapshot cleanup - remove unused" {
     try std.testing.expect(removed >= 1);
 
     // Cleanup remaining
-    std.fs.cwd().deleteFile(".snapshots/cleanup_used.snap") catch {};
+    compat.deleteFile(std.testing.allocator,".snapshots/cleanup_used.snap") catch {};
 }
 
 test "Snapshot compact format" {
@@ -738,5 +702,5 @@ test "Snapshot compact format" {
     try snap.matchString("compact snapshot");
 
     // Cleanup
-    std.fs.cwd().deleteFile(".snapshots/test_compact.snap") catch {};
+    compat.deleteFile(std.testing.allocator,".snapshots/test_compact.snap") catch {};
 }

@@ -1,11 +1,12 @@
 const std = @import("std");
 const lib = @import("lib.zig");
+const compat = @import("compat.zig");
 
 // Global signal handler state
 var shutdown_requested = std.atomic.Value(bool).init(false);
 
 /// Signal handler for SIGINT and SIGTERM
-fn handleSignal(sig: c_int) callconv(.c) void {
+fn handleSignal(sig: std.posix.SIG) callconv(.c) void {
     _ = sig;
     shutdown_requested.store(true, .monotonic);
     std.debug.print("\n\nShutdown requested... cleaning up\n", .{});
@@ -32,7 +33,7 @@ fn installSignalHandlers() !void {
     posix.sigaction(posix.SIG.TERM, &sigterm_action, null);
 }
 
-pub fn main() !void {
+pub fn main(init: std.process.Init.Minimal) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -44,8 +45,18 @@ pub fn main() !void {
 
     // Parse CLI arguments
     var cli_parser = lib.CLI.init(allocator);
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+
+    // Collect args from iterator
+    var args_list = std.ArrayList([]const u8).empty;
+    defer {
+        for (args_list.items) |arg| allocator.free(arg);
+        args_list.deinit(allocator);
+    }
+    var args_iter = std.process.Args.Iterator.init(init.args);
+    while (args_iter.next()) |arg| {
+        try args_list.append(allocator, try allocator.dupe(u8, arg));
+    }
+    const args = args_list.items;
 
     try cli_parser.parse(args);
 
@@ -108,7 +119,7 @@ pub fn main() !void {
                             std.debug.print("UI Server error: {any}\n", .{err});
                         }
                         // Small delay to avoid tight loop on errors
-                        std.Thread.sleep(100 * std.time.ns_per_ms);
+                        compat.sleep(100 * std.time.ns_per_ms);
                     };
                 }
             }
@@ -122,7 +133,7 @@ pub fn main() !void {
         ui_thread = try std.Thread.spawn(.{}, ServerContext.run, .{server_ctx});
 
         // Give server time to start
-        std.Thread.sleep(100 * std.time.ns_per_ms);
+        compat.sleep(100 * std.time.ns_per_ms);
     }
 
     var all_passed: bool = undefined;

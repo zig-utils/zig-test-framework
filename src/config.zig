@@ -1,4 +1,5 @@
 const std = @import("std");
+const compat = @import("compat.zig");
 
 /// Configuration file format
 pub const ConfigFormat = enum {
@@ -143,10 +144,7 @@ pub const ConfigLoader = struct {
 
     /// Load configuration from JSON file
     fn loadFromJson(self: *Self, path: []const u8) !TestConfig {
-        const file = try std.fs.cwd().openFile(path, .{});
-        defer file.close();
-
-        const content = try file.readToEndAlloc(self.allocator, 10 * 1024 * 1024);
+        const content = try compat.readFileAlloc(self.allocator, path);
         defer self.allocator.free(content);
 
         var parsed = try std.json.parseFromSlice(std.json.Value, self.allocator, content, .{});

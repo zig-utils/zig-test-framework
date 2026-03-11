@@ -23,6 +23,7 @@ pub const async_test = @import("async_test.zig");
 pub const timeout = @import("timeout.zig");
 pub const progress = @import("progress.zig");
 pub const time = @import("time.zig");
+pub const compat = @import("compat.zig");
 
 // Re-export commonly used types and functions
 pub const expect = assertions.expect;

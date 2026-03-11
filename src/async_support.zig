@@ -1,4 +1,5 @@
 const std = @import("std");
+const compat = @import("compat.zig");
 
 /// Async/Await Support for Zig Test Framework
 ///
@@ -13,7 +14,7 @@ pub fn Future(comptime T: type) type {
     return struct {
         result: ?Result = null,
         completed: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
-        mutex: std.Thread.Mutex = .{},
+        mutex: compat.Mutex = .{},
 
         const Self = @This();
         const Result = union(enum) {
@@ -28,7 +29,7 @@ pub fn Future(comptime T: type) type {
         /// Wait for the future to complete and get the result
         pub fn await_value(self: *Self) !T {
             while (!self.completed.load(.monotonic)) {
-                std.Thread.sleep(1 * std.time.ns_per_ms);
+                compat.sleep(1 * std.time.ns_per_ms);
             }
 
             self.mutex.lock();
@@ -122,7 +123,7 @@ pub fn runAsync(allocator: std.mem.Allocator, func: AsyncTestFn) !void {
 
     // Wait for completion
     while (!context.completed.load(.monotonic)) {
-        std.Thread.sleep(1 * std.time.ns_per_ms);
+        compat.sleep(1 * std.time.ns_per_ms);
     }
 
     if (context.result) |err| {
@@ -165,7 +166,7 @@ pub const AsyncExecutor = struct {
 
 /// Delay for async operations
 pub fn delay(ms: u64) void {
-    std.Thread.sleep(ms * std.time.ns_per_ms);
+    compat.sleep(ms * std.time.ns_per_ms);
 }
 
 /// Run multiple futures concurrently and wait for all to complete
@@ -187,20 +188,20 @@ pub fn race(comptime T: type, futures: [](*Future(T))) !T {
                 return try future.await_value();
             }
         }
-        std.Thread.sleep(1 * std.time.ns_per_ms);
+        compat.sleep(1 * std.time.ns_per_ms);
     }
 }
 
 /// Timeout wrapper for async operations
 pub fn timeout(comptime T: type, future: *Future(T), timeout_ms: u64) !T {
-    const start = std.time.milliTimestamp();
+    const start = compat.milliTimestamp();
 
     while (!future.isCompleted()) {
-        const elapsed = std.time.milliTimestamp() - start;
+        const elapsed = compat.milliTimestamp() - start;
         if (elapsed >= timeout_ms) {
             return error.Timeout;
         }
-        std.Thread.sleep(1 * std.time.ns_per_ms);
+        compat.sleep(1 * std.time.ns_per_ms);
     }
 
     return try future.await_value();

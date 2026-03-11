@@ -1,4 +1,5 @@
 const std = @import("std");
+const compat = @import("compat.zig");
 
 /// Spinner style
 pub const SpinnerStyle = enum {
@@ -48,7 +49,7 @@ pub const Spinner = struct {
     frame_index: usize,
     running: std.atomic.Value(bool),
     thread: ?std.Thread,
-    mutex: std.Thread.Mutex,
+    mutex: compat.Mutex,
 
     const Self = @This();
 
@@ -111,7 +112,7 @@ pub const Spinner = struct {
             self.frame_index += 1;
             self.mutex.unlock();
 
-            std.Thread.sleep(80 * std.time.ns_per_ms);
+            compat.sleep(80 * std.time.ns_per_ms);
         }
     }
 
@@ -150,7 +151,7 @@ pub const ProgressBar = struct {
     message: []const u8,
     show_percentage: bool,
     show_count: bool,
-    mutex: std.Thread.Mutex,
+    mutex: compat.Mutex,
 
     const Self = @This();
 
@@ -250,7 +251,7 @@ pub const TestProgress = struct {
     progress_bar: ?ProgressBar,
     use_spinner: bool,
     use_progress_bar: bool,
-    mutex: std.Thread.Mutex,
+    mutex: compat.Mutex,
 
     const Self = @This();
 
@@ -266,7 +267,7 @@ pub const TestProgress = struct {
             .failed = std.atomic.Value(usize).init(0),
             .skipped = std.atomic.Value(usize).init(0),
             .running_test = null,
-            .start_time = std.time.milliTimestamp(),
+            .start_time = compat.milliTimestamp(),
             .spinner = null,
             .progress_bar = null,
             .use_spinner = options.use_spinner,
@@ -350,7 +351,7 @@ pub const TestProgress = struct {
 
     /// Get elapsed time in milliseconds
     pub fn getElapsedMs(self: *Self) i64 {
-        return std.time.milliTimestamp() - self.start_time;
+        return compat.milliTimestamp() - self.start_time;
     }
 
     /// Print summary

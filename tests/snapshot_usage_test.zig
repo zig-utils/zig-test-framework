@@ -1,5 +1,6 @@
 const std = @import("std");
 const ztf = @import("zig-test-framework");
+const compat = ztf.compat;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -417,7 +418,7 @@ pub fn main() !void {
     };
 
     for (cleanup_files) |file| {
-        std.fs.cwd().deleteFile(file) catch {};
+        compat.deleteFile(std.heap.page_allocator, file) catch {};
     }
 
     if (!success) {

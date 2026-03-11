@@ -1,6 +1,7 @@
 const std = @import("std");
 const reporter_mod = @import("reporter.zig");
 const suite = @import("suite.zig");
+const compat = @import("compat.zig");
 
 /// Test history entry
 pub const HistoryEntry = struct {
@@ -62,7 +63,7 @@ pub const TestHistory = struct {
 
     /// Start recording a new test run
     pub fn startRun(self: *Self, total: usize) !void {
-        self.start_time = std.time.milliTimestamp();
+        self.start_time = compat.milliTimestamp();
 
         self.current_entry = HistoryEntry{
             .timestamp = self.start_time,
@@ -107,7 +108,7 @@ pub const TestHistory = struct {
     pub fn finishRun(self: *Self, results: *reporter_mod.TestResults) !void {
         if (self.current_entry == null) return error.NoActiveRun;
 
-        const end_time = std.time.milliTimestamp();
+        const end_time = compat.milliTimestamp();
         self.current_entry.?.duration_ns = @intCast((end_time - self.start_time) * std.time.ns_per_ms);
         self.current_entry.?.passed = results.passed;
         self.current_entry.?.failed = results.failed;
@@ -121,79 +122,58 @@ pub const TestHistory = struct {
         if (self.current_entry == null) return;
 
         // Ensure history directory exists
-        std.fs.cwd().makePath(self.history_dir) catch {};
+        compat.makePath(self.allocator, self.history_dir) catch {};
 
         // Generate filename based on timestamp
         var filename_buf: [256]u8 = undefined;
         const filename = try std.fmt.bufPrint(&filename_buf, "{s}/test-run-{d}.json", .{ self.history_dir, self.current_entry.?.timestamp });
 
-        // Create file
-        const file = try std.fs.cwd().createFile(filename, .{});
-        defer file.close();
-
         // Write JSON
         var buffer = std.ArrayList(u8).empty;
         defer buffer.deinit(self.allocator);
 
-        const writer = buffer.writer(self.allocator);
-
-        try writer.writeAll("{\n");
-        try writer.print("  \"timestamp\": {d},\n", .{self.current_entry.?.timestamp});
-        try writer.print("  \"total\": {d},\n", .{self.current_entry.?.total});
-        try writer.print("  \"passed\": {d},\n", .{self.current_entry.?.passed});
-        try writer.print("  \"failed\": {d},\n", .{self.current_entry.?.failed});
-        try writer.print("  \"skipped\": {d},\n", .{self.current_entry.?.skipped});
-        try writer.print("  \"duration_ns\": {d},\n", .{self.current_entry.?.duration_ns});
-        try writer.writeAll("  \"tests\": [\n");
+        try buffer.appendSlice(self.allocator, "{\n");
+        try buffer.print(self.allocator, "  \"timestamp\": {d},\n", .{self.current_entry.?.timestamp});
+        try buffer.print(self.allocator, "  \"total\": {d},\n", .{self.current_entry.?.total});
+        try buffer.print(self.allocator, "  \"passed\": {d},\n", .{self.current_entry.?.passed});
+        try buffer.print(self.allocator, "  \"failed\": {d},\n", .{self.current_entry.?.failed});
+        try buffer.print(self.allocator, "  \"skipped\": {d},\n", .{self.current_entry.?.skipped});
+        try buffer.print(self.allocator, "  \"duration_ns\": {d},\n", .{self.current_entry.?.duration_ns});
+        try buffer.appendSlice(self.allocator, "  \"tests\": [\n");
 
         for (self.current_entry.?.tests.items, 0..) |test_record, i| {
-            try writer.writeAll("    {\n");
-            try writer.print("      \"name\": \"{s}\",\n", .{test_record.name});
-            try writer.print("      \"suite_name\": \"{s}\",\n", .{test_record.suite_name});
-            try writer.print("      \"status\": \"{s}\",\n", .{test_record.status});
-            try writer.print("      \"execution_time_ns\": {d}", .{test_record.execution_time_ns});
+            try buffer.appendSlice(self.allocator, "    {\n");
+            try buffer.print(self.allocator, "      \"name\": \"{s}\",\n", .{test_record.name});
+            try buffer.print(self.allocator, "      \"suite_name\": \"{s}\",\n", .{test_record.suite_name});
+            try buffer.print(self.allocator, "      \"status\": \"{s}\",\n", .{test_record.status});
+            try buffer.print(self.allocator, "      \"execution_time_ns\": {d}", .{test_record.execution_time_ns});
 
             if (test_record.error_message) |msg| {
-                try writer.writeAll(",\n");
-                try writer.print("      \"error_message\": \"{s}\"\n", .{msg});
+                try buffer.appendSlice(self.allocator, ",\n");
+                try buffer.print(self.allocator, "      \"error_message\": \"{s}\"\n", .{msg});
             } else {
-                try writer.writeAll("\n");
+                try buffer.appendSlice(self.allocator, "\n");
             }
 
             if (i < self.current_entry.?.tests.items.len - 1) {
-                try writer.writeAll("    },\n");
+                try buffer.appendSlice(self.allocator, "    },\n");
             } else {
-                try writer.writeAll("    }\n");
+                try buffer.appendSlice(self.allocator, "    }\n");
             }
         }
 
-        try writer.writeAll("  ]\n");
-        try writer.writeAll("}\n");
+        try buffer.appendSlice(self.allocator, "  ]\n");
+        try buffer.appendSlice(self.allocator, "}\n");
 
-        try file.writeAll(buffer.items);
+        try compat.writeFile(self.allocator, filename, buffer.items);
     }
 
     /// Get list of all history files
+    /// Note: Directory iteration needs Io in Zig 0.16, stubbed for now
     pub fn listHistory(self: *Self) !std.ArrayList([]const u8) {
-        var list = std.ArrayList([]const u8).empty;
-
-        var dir = std.fs.cwd().openDir(self.history_dir, .{ .iterate = true }) catch |err| {
-            if (err == error.FileNotFound) {
-                return list;
-            }
-            return err;
-        };
-        defer dir.close();
-
-        var iterator = dir.iterate();
-        while (try iterator.next()) |entry| {
-            if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".json")) {
-                const name_copy = try self.allocator.dupe(u8, entry.name);
-                try list.append(self.allocator, name_copy);
-            }
-        }
-
-        return list;
+        _ = self;
+        // TODO: Re-implement with std.Io.Dir when Io is available
+        return std.ArrayList([]const u8).empty;
     }
 
     /// Load a specific history entry
@@ -201,10 +181,7 @@ pub const TestHistory = struct {
         var path_buf: [512]u8 = undefined;
         const path = try std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ self.history_dir, filename });
 
-        const file = try std.fs.cwd().openFile(path, .{});
-        defer file.close();
-
-        const content = try file.readToEndAlloc(self.allocator, 10 * 1024 * 1024); // 10MB max
+        const content = try compat.readFileAlloc(self.allocator, path);
         defer self.allocator.free(content);
 
         // For now, just return a simple entry
@@ -244,7 +221,7 @@ pub const TestHistory = struct {
         for (history_files.items[0..to_delete]) |filename| {
             var path_buf: [512]u8 = undefined;
             const path = try std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ self.history_dir, filename });
-            std.fs.cwd().deleteFile(path) catch {};
+            compat.deleteFile(self.allocator, path) catch {};
         }
     }
 };

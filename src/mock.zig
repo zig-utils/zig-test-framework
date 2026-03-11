@@ -1,5 +1,6 @@
 const std = @import("std");
 const assertions = @import("assertions.zig");
+const compat = @import("compat.zig");
 
 /// Result type for mock function calls
 pub const MockResult = union(enum) {
@@ -25,7 +26,7 @@ pub const CallRecord = struct {
     pub fn init(allocator: std.mem.Allocator, args: []const u8) !CallRecord {
         return CallRecord{
             .args = try allocator.dupe(u8, args),
-            .timestamp = std.time.milliTimestamp(),
+            .timestamp = compat.milliTimestamp(),
         };
     }
 
@@ -41,7 +42,7 @@ pub const CallRecord = struct {
 pub const MockRegistry = struct {
     mocks: std.ArrayList(*anyopaque),
     allocator: std.mem.Allocator,
-    mutex: std.Thread.Mutex = .{},
+    mutex: compat.Mutex = .{},
 
     pub fn init(allocator: std.mem.Allocator) MockRegistry {
         return .{

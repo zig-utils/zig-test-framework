@@ -1,5 +1,6 @@
 const std = @import("std");
 const suite = @import("suite.zig");
+const compat = @import("compat.zig");
 
 /// Async test function signature
 pub const AsyncTestFn = *const fn (allocator: std.mem.Allocator) anyerror!void;
@@ -51,7 +52,7 @@ pub const AsyncTestContext = struct {
     timeout_ms: u64,
     result: AsyncTestResult,
     completed: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
-    mutex: std.Thread.Mutex = .{},
+    mutex: compat.Mutex = .{},
 
     const Self = @This();
 
@@ -74,12 +75,12 @@ pub const AsyncTestContext = struct {
         self.result.status = .running;
         self.mutex.unlock();
 
-        const start = std.time.nanoTimestamp();
+        const start = compat.nanoTimestamp();
 
         if (self.test_fn(self.allocator)) |_| {
             self.mutex.lock();
             self.result.status = .completed;
-            self.result.duration_ns = @intCast(std.time.nanoTimestamp() - start);
+            self.result.duration_ns = @intCast(compat.nanoTimestamp() - start);
             self.mutex.unlock();
         } else |err| {
             self.mutex.lock();
@@ -89,7 +90,7 @@ pub const AsyncTestContext = struct {
                 "{s}",
                 .{@errorName(err)},
             ) catch null;
-            self.result.duration_ns = @intCast(std.time.nanoTimestamp() - start);
+            self.result.duration_ns = @intCast(compat.nanoTimestamp() - start);
             self.mutex.unlock();
         }
 
@@ -241,14 +242,14 @@ pub const AsyncTestExecutor = struct {
     /// Wait for a context to complete with timeout
     fn waitWithTimeout(self: *Self, ctx: *AsyncTestContext, timeout_ms: u64) !bool {
         _ = self;
-        const start = std.time.milliTimestamp();
+        const start = compat.milliTimestamp();
 
         while (!ctx.isCompleted()) {
-            const elapsed = std.time.milliTimestamp() - start;
+            const elapsed = compat.milliTimestamp() - start;
             if (elapsed >= timeout_ms) {
                 return false; // Timeout
             }
-            std.Thread.sleep(1 * std.time.ns_per_ms);
+            compat.sleep(1 * std.time.ns_per_ms);
         }
 
         return true; // Completed
@@ -346,14 +347,14 @@ pub const AsyncHooksManager = struct {
             const thread = try std.Thread.spawn(.{}, HookContext.run, .{&ctx});
 
             // Wait with timeout
-            const start = std.time.milliTimestamp();
+            const start = compat.milliTimestamp();
             while (!ctx.completed.load(.monotonic)) {
-                const elapsed = std.time.milliTimestamp() - start;
+                const elapsed = compat.milliTimestamp() - start;
                 if (elapsed >= self.timeout_ms) {
                     thread.detach();
                     return error.HookTimeout;
                 }
-                std.Thread.sleep(1 * std.time.ns_per_ms);
+                compat.sleep(1 * std.time.ns_per_ms);
             }
 
             thread.join();
@@ -388,7 +389,7 @@ test "AsyncTestContext basic execution" {
     const testFn: AsyncTestFn = struct {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
-            std.Thread.sleep(10 * std.time.ns_per_ms);
+            compat.sleep(10 * std.time.ns_per_ms);
         }
     }.run;
 
@@ -432,14 +433,14 @@ test "AsyncTestExecutor sequential execution" {
     const test1: AsyncTestFn = struct {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
-            std.Thread.sleep(10 * std.time.ns_per_ms);
+            compat.sleep(10 * std.time.ns_per_ms);
         }
     }.run;
 
     const test2: AsyncTestFn = struct {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
-            std.Thread.sleep(10 * std.time.ns_per_ms);
+            compat.sleep(10 * std.time.ns_per_ms);
         }
     }.run;
 
@@ -463,7 +464,7 @@ test "AsyncTestExecutor concurrent execution" {
     const test1: AsyncTestFn = struct {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
-            std.Thread.sleep(20 * std.time.ns_per_ms);
+            compat.sleep(20 * std.time.ns_per_ms);
         }
     }.run;
 
@@ -497,14 +498,14 @@ test "AsyncHooksManager beforeEach/afterEach" {
     const beforeHook: AsyncHookFn = struct {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
-            std.Thread.sleep(5 * std.time.ns_per_ms);
+            compat.sleep(5 * std.time.ns_per_ms);
         }
     }.run;
 
     const afterHook: AsyncHookFn = struct {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
-            std.Thread.sleep(5 * std.time.ns_per_ms);
+            compat.sleep(5 * std.time.ns_per_ms);
         }
     }.run;
 

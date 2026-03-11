@@ -1,5 +1,6 @@
 const std = @import("std");
 const ztf = @import("zig-test-framework");
+const compat = ztf.compat;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -45,7 +46,7 @@ pub fn main() !void {
             ztf.setSystemTime(alloc, 1577836800000);
 
             const before = ztf.time.now(alloc);
-            std.Thread.sleep(100 * std.time.ns_per_ms); // Sleep 100ms
+            compat.sleep(100 * std.time.ns_per_ms); // Sleep 100ms
             const after = ztf.time.now(alloc);
 
             // Time shouldn't advance when using fake timers with a set time
@@ -302,9 +303,9 @@ pub fn main() !void {
             ztf.setSystemTime(alloc, frozen_time);
 
             const t1 = ztf.time.now(alloc);
-            std.Thread.sleep(50 * std.time.ns_per_ms); // Sleep 50ms
+            compat.sleep(50 * std.time.ns_per_ms); // Sleep 50ms
             const t2 = ztf.time.now(alloc);
-            std.Thread.sleep(50 * std.time.ns_per_ms); // Sleep another 50ms
+            compat.sleep(50 * std.time.ns_per_ms); // Sleep another 50ms
             const t3 = ztf.time.now(alloc);
 
             // Time should remain frozen

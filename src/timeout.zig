@@ -1,5 +1,6 @@
 const std = @import("std");
 const suite = @import("suite.zig");
+const compat = @import("compat.zig");
 
 /// Global timeout configuration
 pub const GlobalTimeoutConfig = struct {
@@ -89,13 +90,13 @@ pub const TimeoutContext = struct {
         return .{
             .allocator = allocator,
             .timeout_ms = timeout_ms,
-            .start_time = std.time.milliTimestamp(),
+            .start_time = compat.milliTimestamp(),
         };
     }
 
     /// Start the timeout timer
     pub fn start(self: *Self) void {
-        self.start_time = std.time.milliTimestamp();
+        self.start_time = compat.milliTimestamp();
         self.status.store(1, .monotonic); // running
     }
 
@@ -113,7 +114,7 @@ pub const TimeoutContext = struct {
 
     /// Get elapsed time in milliseconds
     pub fn getElapsedMs(self: *Self) u64 {
-        const now = std.time.milliTimestamp();
+        const now = compat.milliTimestamp();
         return @intCast(now - self.start_time);
     }
 
@@ -206,7 +207,7 @@ pub const TimeoutEnforcer = struct {
     active_contexts: std.ArrayList(*TimeoutContext),
     monitor_thread: ?std.Thread = null,
     running: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
-    mutex: std.Thread.Mutex = .{},
+    mutex: compat.Mutex = .{},
 
     const Self = @This();
 
@@ -271,7 +272,7 @@ pub const TimeoutEnforcer = struct {
     /// Monitor loop that runs in a separate thread
     fn monitorLoop(self: *Self) void {
         while (self.running.load(.monotonic)) {
-            std.Thread.sleep(100 * std.time.ns_per_ms); // Check every 100ms
+            compat.sleep(100 * std.time.ns_per_ms); // Check every 100ms
 
             self.mutex.lock();
             var i: usize = 0;
@@ -331,7 +332,7 @@ pub const SuiteTimeoutTracker = struct {
             .allocator = allocator,
             .suite_name = suite_name,
             .timeout_ms = timeout_ms,
-            .start_time = std.time.milliTimestamp(),
+            .start_time = compat.milliTimestamp(),
         };
     }
 
@@ -350,7 +351,7 @@ pub const SuiteTimeoutTracker = struct {
     }
 
     pub fn getElapsedMs(self: *Self) u64 {
-        const now = std.time.milliTimestamp();
+        const now = compat.milliTimestamp();
         return @intCast(now - self.start_time);
     }
 
@@ -387,7 +388,7 @@ test "TimeoutContext basic timeout" {
     try std.testing.expect(!context.isTimedOut());
 
     // Wait for timeout
-    std.Thread.sleep(150 * std.time.ns_per_ms);
+    compat.sleep(150 * std.time.ns_per_ms);
 
     // Should be timed out now
     try std.testing.expect(context.isTimedOut());
@@ -402,12 +403,12 @@ test "TimeoutContext extension" {
     // Extend timeout
     try context.extend(100);
 
-    std.Thread.sleep(120 * std.time.ns_per_ms);
+    compat.sleep(120 * std.time.ns_per_ms);
 
     // Should not be timed out (extended to 200ms total)
     try std.testing.expect(!context.isTimedOut());
 
-    std.Thread.sleep(100 * std.time.ns_per_ms);
+    compat.sleep(100 * std.time.ns_per_ms);
 
     // Should be timed out now
     try std.testing.expect(context.isTimedOut());
@@ -419,7 +420,7 @@ test "TimeoutContext completion before timeout" {
     var context = TimeoutContext.init(allocator, 1000);
     context.start();
 
-    std.Thread.sleep(50 * std.time.ns_per_ms);
+    compat.sleep(50 * std.time.ns_per_ms);
 
     context.complete();
 
@@ -439,7 +440,7 @@ test "TimeoutContext get result" {
     var context = TimeoutContext.init(allocator, 100);
     context.start();
 
-    std.Thread.sleep(150 * std.time.ns_per_ms);
+    compat.sleep(150 * std.time.ns_per_ms);
     context.markTimedOut();
 
     var result = try context.getResult();
@@ -481,7 +482,7 @@ test "SuiteTimeoutTracker basic functionality" {
     tracker.incrementTest();
     tracker.incrementCompleted();
 
-    std.Thread.sleep(250 * std.time.ns_per_ms);
+    compat.sleep(250 * std.time.ns_per_ms);
 
     try std.testing.expect(tracker.isTimedOut());
 }
@@ -494,7 +495,7 @@ test "SuiteTimeoutTracker remaining time" {
     const remaining1 = tracker.getRemainingMs();
     try std.testing.expect(remaining1 > 900 and remaining1 <= 1000);
 
-    std.Thread.sleep(100 * std.time.ns_per_ms);
+    compat.sleep(100 * std.time.ns_per_ms);
 
     const remaining2 = tracker.getRemainingMs();
     try std.testing.expect(remaining2 < remaining1);

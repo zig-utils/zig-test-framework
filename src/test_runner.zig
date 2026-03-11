@@ -2,6 +2,7 @@ const std = @import("std");
 const suite = @import("suite.zig");
 const reporter_mod = @import("reporter.zig");
 const parallel = @import("parallel.zig");
+const compat = @import("compat.zig");
 
 pub const RunnerError = error{
     NoTestsFound,
@@ -48,9 +49,11 @@ pub const TestRunner = struct {
 
     /// Run all registered tests
     pub fn run(self: *Self) !bool {
-        const stdout_file = std.fs.File.stdout();
+        const stdout_file = std.Io.File.stdout();
         var stdout_buffer: [4096]u8 = undefined;
-        var stdout_writer = stdout_file.writer(&stdout_buffer);
+        var threaded_io: std.Io.Threaded = .init(std.mem.Allocator.failing, .{ .environ = .empty });
+        defer threaded_io.deinit();
+        var stdout_writer = stdout_file.writer(threaded_io.io(), &stdout_buffer);
 
         // Create reporter
         var spec_reporter = reporter_mod.SpecReporter.init(self.allocator, stdout_writer.interface);
@@ -210,7 +213,7 @@ pub const TestRunner = struct {
         try rep.onTestStart(test_case.name);
 
         test_case.status = .running;
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat.nanoTimestamp();
 
         // Get all beforeEach hooks (including parent hooks)
         var before_hooks = try test_suite.getAllBeforeEachHooks(self.allocator);
@@ -252,7 +255,7 @@ pub const TestRunner = struct {
             };
         }
 
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat.nanoTimestamp();
         test_case.execution_time_ns = @intCast(end_time - start_time);
 
         try self.results.addTest(test_case);

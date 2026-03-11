@@ -1,5 +1,6 @@
 const std = @import("std");
 const suite = @import("suite.zig");
+const compat = @import("compat.zig");
 
 /// ANSI color codes
 pub const Colors = struct {
@@ -99,11 +100,11 @@ pub const TestResults = struct {
 pub const SpecReporter = struct {
     reporter: Reporter,
     indent_level: usize = 0,
-    writer: std.io.Writer,
+    writer: std.Io.Writer,
 
     const Self = @This();
 
-    pub fn init(allocator: std.mem.Allocator, writer: std.io.Writer) Self {
+    pub fn init(allocator: std.mem.Allocator, writer: std.Io.Writer) Self {
         return Self{
             .reporter = Reporter{
                 .vtable = &vtable,
@@ -280,13 +281,13 @@ pub const SpecReporter = struct {
 /// Dot reporter (minimal output)
 pub const DotReporter = struct {
     reporter: Reporter,
-    writer: std.io.Writer,
+    writer: std.Io.Writer,
     tests_per_line: usize = 80,
     current_line_count: usize = 0,
 
     const Self = @This();
 
-    pub fn init(allocator: std.mem.Allocator, writer: std.io.Writer) Self {
+    pub fn init(allocator: std.mem.Allocator, writer: std.Io.Writer) Self {
         return Self{
             .reporter = Reporter{
                 .vtable = &vtable,
@@ -388,12 +389,12 @@ pub const DotReporter = struct {
 /// JSON reporter
 pub const JsonReporter = struct {
     reporter: Reporter,
-    writer: std.io.Writer,
+    writer: std.Io.Writer,
     suites: std.ArrayList([]const u8),
 
     const Self = @This();
 
-    pub fn init(allocator: std.mem.Allocator, writer: std.io.Writer) Self {
+    pub fn init(allocator: std.mem.Allocator, writer: std.Io.Writer) Self {
         return Self{
             .reporter = Reporter{
                 .vtable = &vtable,
@@ -486,12 +487,12 @@ pub const JsonReporter = struct {
 /// TAP (Test Anything Protocol) reporter
 pub const TAPReporter = struct {
     reporter: Reporter,
-    writer: std.io.Writer,
+    writer: std.Io.Writer,
     test_count: usize = 0,
 
     const Self = @This();
 
-    pub fn init(allocator: std.mem.Allocator, writer: std.io.Writer) Self {
+    pub fn init(allocator: std.mem.Allocator, writer: std.Io.Writer) Self {
         return .{
             .reporter = .{
                 .vtable = &.{
@@ -635,7 +636,7 @@ pub const JUnitReporter = struct {
         suite_result.* = .{
             .name = try self.allocator.dupe(u8, suite_name),
             .tests = .empty,
-            .timestamp = std.time.milliTimestamp(),
+            .timestamp = compat.milliTimestamp(),
         };
 
         try self.suites.append(self.allocator, suite_result.*);
@@ -675,16 +676,11 @@ pub const JUnitReporter = struct {
     }
 
     fn writeXML(self: *Self, results: *TestResults) !void {
-        const file = try std.fs.cwd().createFile(self.output_file, .{});
-        defer file.close();
-
         var buffer = std.ArrayList(u8).empty;
         defer buffer.deinit(self.allocator);
 
-        const writer = buffer.writer(self.allocator);
-
-        try writer.writeAll("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-        try writer.print("<testsuites tests=\"{d}\" failures=\"{d}\" skipped=\"{d}\">\n", .{
+        try buffer.appendSlice(self.allocator, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        try buffer.print(self.allocator, "<testsuites tests=\"{d}\" failures=\"{d}\" skipped=\"{d}\">\n", .{
             results.total,
             results.failed,
             results.skipped,
@@ -701,7 +697,7 @@ pub const JUnitReporter = struct {
                 suite_time += test_result.time;
             }
 
-            try writer.print("  <testsuite name=\"{s}\" tests=\"{d}\" failures=\"{d}\" skipped=\"{d}\" time=\"{d:.6}\">\n", .{
+            try buffer.print(self.allocator, "  <testsuite name=\"{s}\" tests=\"{d}\" failures=\"{d}\" skipped=\"{d}\" time=\"{d:.6}\">\n", .{
                 suite_result.name,
                 suite_result.tests.items.len,
                 suite_failures,
@@ -710,32 +706,32 @@ pub const JUnitReporter = struct {
             });
 
             for (suite_result.tests.items) |test_result| {
-                try writer.print("    <testcase name=\"{s}\" time=\"{d:.6}\"", .{
+                try buffer.print(self.allocator, "    <testcase name=\"{s}\" time=\"{d:.6}\"", .{
                     test_result.name,
                     test_result.time,
                 });
 
                 if (test_result.status == .failed) {
-                    try writer.writeAll(">\n");
-                    try writer.print("      <failure message=\"{s}\"/>\n", .{
+                    try buffer.appendSlice(self.allocator, ">\n");
+                    try buffer.print(self.allocator, "      <failure message=\"{s}\"/>\n", .{
                         test_result.error_message orelse "Test failed",
                     });
-                    try writer.writeAll("    </testcase>\n");
+                    try buffer.appendSlice(self.allocator, "    </testcase>\n");
                 } else if (test_result.status == .skipped) {
-                    try writer.writeAll(">\n");
-                    try writer.writeAll("      <skipped/>\n");
-                    try writer.writeAll("    </testcase>\n");
+                    try buffer.appendSlice(self.allocator, ">\n");
+                    try buffer.appendSlice(self.allocator, "      <skipped/>\n");
+                    try buffer.appendSlice(self.allocator, "    </testcase>\n");
                 } else {
-                    try writer.writeAll("/>\n");
+                    try buffer.appendSlice(self.allocator, "/>\n");
                 }
             }
 
-            try writer.writeAll("  </testsuite>\n");
+            try buffer.appendSlice(self.allocator, "  </testsuite>\n");
         }
 
-        try writer.writeAll("</testsuites>\n");
+        try buffer.appendSlice(self.allocator, "</testsuites>\n");
 
-        try file.writeAll(buffer.items);
+        try compat.writeFile(self.allocator, self.output_file, buffer.items);
     }
 };
 

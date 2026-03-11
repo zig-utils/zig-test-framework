@@ -1,4 +1,5 @@
 const std = @import("std");
+const compat = @import("compat.zig");
 
 /// Time mocking state
 pub const TimeMock = struct {
@@ -61,15 +62,15 @@ pub const TimeMock = struct {
     /// Get current time (mocked or real)
     pub fn now(self: *Self) i64 {
         if (self.is_fake) {
-            return self.mocked_timestamp orelse std.time.milliTimestamp();
+            return self.mocked_timestamp orelse compat.milliTimestamp();
         }
-        return std.time.milliTimestamp();
+        return compat.milliTimestamp();
     }
 
     /// Advance mocked time by milliseconds
     pub fn advanceTimersByTime(self: *Self, ms: i64) *Self {
         if (self.is_fake) {
-            const current = self.mocked_timestamp orelse std.time.milliTimestamp();
+            const current = self.mocked_timestamp orelse compat.milliTimestamp();
             self.mocked_timestamp = current + ms;
         }
         return self;
@@ -96,7 +97,7 @@ pub const TimeMock = struct {
 
 /// Global time mock instance
 var global_time_mock: ?TimeMock = null;
-var time_mock_mutex = std.Thread.Mutex{};
+var time_mock_mutex = compat.Mutex{};
 
 /// Get or create the global time mock
 pub fn getTimeMock(allocator: std.mem.Allocator) *TimeMock {

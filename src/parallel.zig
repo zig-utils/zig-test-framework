@@ -1,6 +1,7 @@
 const std = @import("std");
 const suite = @import("suite.zig");
 const reporter = @import("reporter.zig");
+const compat = @import("compat.zig");
 
 /// Options for parallel test execution
 pub const ParallelOptions = struct {
@@ -15,7 +16,7 @@ pub const TestResult = struct {
     test_case: *suite.TestCase,
     suite_name: []const u8,
     success: bool,
-    mutex: std.Thread.Mutex = .{},
+    mutex: compat.Mutex = .{},
 };
 
 /// Context for parallel test execution
@@ -23,7 +24,7 @@ pub const ParallelContext = struct {
     allocator: std.mem.Allocator,
     reporter: *reporter.Reporter,
     results: std.ArrayList(TestResult),
-    mutex: std.Thread.Mutex = .{},
+    mutex: compat.Mutex = .{},
 
     pub fn init(allocator: std.mem.Allocator, rep: *reporter.Reporter) ParallelContext {
         return .{
@@ -96,17 +97,6 @@ pub fn runTestsParallel(
     var context = ParallelContext.init(allocator, rep);
     defer context.deinit();
 
-    // Create thread pool
-    var pool: std.Thread.Pool = undefined;
-    try pool.init(.{
-        .allocator = allocator,
-        .n_jobs = options.n_jobs,
-    });
-    defer pool.deinit();
-
-    // Create wait group
-    var wait_group: std.Thread.WaitGroup = .{};
-
     // Count total tests
     var total_tests: usize = 0;
     for (test_registry.root_suites.items) |test_suite| {
@@ -115,7 +105,10 @@ pub fn runTestsParallel(
 
     try rep.onRunStart(total_tests);
 
-    // Spawn tasks for each test
+    // Collect tasks and spawn threads
+    var threads = std.ArrayList(std.Thread).empty;
+    defer threads.deinit(allocator);
+
     for (test_registry.root_suites.items) |test_suite| {
         try rep.onSuiteStart(test_suite.name);
 
@@ -133,14 +126,16 @@ pub fn runTestsParallel(
                 .suite_name = test_suite.name,
             };
 
-            // Spawn task in thread pool
-            wait_group.start();
-            pool.spawnWg(&wait_group, runTestTask, .{task});
+            // Spawn thread for task
+            const thread = try std.Thread.spawn(.{}, runTestTask, .{task});
+            try threads.append(allocator, thread);
         }
     }
 
-    // Wait for all tests to complete
-    pool.waitAndWork(&wait_group);
+    // Wait for all threads to complete
+    for (threads.items) |thread| {
+        thread.join();
+    }
 
     // Report results (now that all tests are done)
     var all_passed = true;

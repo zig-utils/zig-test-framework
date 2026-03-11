@@ -1,4 +1,5 @@
 const std = @import("std");
+const compat = @import("compat.zig");
 
 /// Coverage collection options
 pub const CoverageOptions = struct {
@@ -73,11 +74,7 @@ pub fn isCoverageToolAvailable(allocator: std.mem.Allocator, tool: CoverageTool)
     try argv.append(allocator, "which");
     try argv.append(allocator, tool_name);
 
-    var child = std.process.Child.init(argv.items, allocator);
-    child.stdout_behavior = .Ignore;
-    child.stderr_behavior = .Ignore;
-
-    const term = child.spawnAndWait() catch return false;
+    const term = compat.spawnAndWait(allocator, argv.items, .Ignore, .Ignore) catch return false;
 
     return switch (term) {
         .Exited => |code| code == 0,
@@ -109,11 +106,11 @@ pub fn runWithCoverage(
 
     // Clean coverage directory if requested
     if (options.clean) {
-        std.fs.cwd().deleteTree(options.output_dir) catch {};
+        // TODO: deleteTree needs Io in Zig 0.16
     }
 
     // Create coverage output directory
-    try std.fs.cwd().makePath(options.output_dir);
+    try compat.makePath(allocator, options.output_dir);
 
     // Build command based on coverage tool
     var argv: std.ArrayList([]const u8) = .empty;
@@ -156,11 +153,7 @@ pub fn runWithCoverage(
     }
 
     // Run coverage tool
-    var child = std.process.Child.init(argv.items, allocator);
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
-
-    const term = try child.spawnAndWait();
+    const term = try compat.spawnAndWait(allocator, argv.items, .Inherit, .Inherit);
 
     const success = switch (term) {
         .Exited => |code| code == 0,
@@ -197,11 +190,7 @@ pub fn runTestWithCoverage(
         try argv.append(allocator, "test");
         try argv.append(allocator, test_file_path);
 
-        var child = std.process.Child.init(argv.items, allocator);
-        child.stdout_behavior = .Inherit;
-        child.stderr_behavior = .Inherit;
-
-        const term = try child.spawnAndWait();
+        const term = try compat.spawnAndWait(allocator, argv.items, .Inherit, .Inherit);
         return switch (term) {
             .Exited => |code| code == 0,
             else => false,
@@ -210,8 +199,8 @@ pub fn runTestWithCoverage(
 
     // Clean coverage directory if requested (only on first run)
     if (options.clean) {
-        std.fs.cwd().deleteTree(options.output_dir) catch {};
-        try std.fs.cwd().makePath(options.output_dir);
+        // TODO: deleteTree needs Io in Zig 0.16
+        try compat.makePath(allocator, options.output_dir);
     }
 
     // Build zig test command with coverage integration
@@ -257,11 +246,7 @@ pub fn runTestWithCoverage(
     }
 
     // Run zig test with coverage
-    var child = std.process.Child.init(argv.items, allocator);
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
-
-    const term = try child.spawnAndWait();
+    const term = try compat.spawnAndWait(allocator, argv.items, .Inherit, .Inherit);
 
     const success = switch (term) {
         .Exited => |code| code == 0,
@@ -277,15 +262,12 @@ pub fn parseCoverageReport(allocator: std.mem.Allocator, coverage_dir: []const u
     const json_path = try std.fs.path.join(allocator, &.{ coverage_dir, "index.json" });
     defer allocator.free(json_path);
 
-    const file = std.fs.cwd().openFile(json_path, .{}) catch |err| {
+    const content = compat.readFileAlloc(allocator, json_path) catch |err| {
         std.debug.print("Warning: Could not read coverage report: {any}\n", .{err});
         return CoverageResult{
             .report_dir = coverage_dir,
         };
     };
-    defer file.close();
-
-    const content = try file.readToEndAlloc(allocator, 10 * 1024 * 1024); // 10MB max
     defer allocator.free(content);
 
     // Parse JSON (simplified - in production you'd use a JSON parser)

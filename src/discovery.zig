@@ -1,4 +1,5 @@
 const std = @import("std");
+const compat = @import("compat.zig");
 
 /// Test file discovery options
 pub const DiscoveryOptions = struct {
@@ -63,7 +64,8 @@ pub fn discoverTests(allocator: std.mem.Allocator, options: DiscoveryOptions) !D
     errdefer result.deinit();
 
     // Get absolute path of root
-    const root_path = try std.fs.cwd().realpathAlloc(allocator, options.root_path);
+    // TODO: realpathAlloc needs Io in Zig 0.16, using path as-is
+    const root_path = try allocator.dupe(u8, options.root_path);
     defer allocator.free(root_path);
 
     try scanDirectory(allocator, &result, root_path, root_path, options);
@@ -79,16 +81,14 @@ fn scanDirectory(
     current_path: []const u8,
     options: DiscoveryOptions,
 ) !void {
-    var dir = std.fs.openDirAbsolute(current_path, .{ .iterate = true }) catch |err| {
+    var dir = compat.DirIterator.open(current_path) catch {
         // Skip directories we can't open (permission issues, etc.)
-        std.debug.print("Warning: Cannot open directory {s}: {any}\n", .{ current_path, err });
+        std.debug.print("Warning: Cannot open directory {s}\n", .{current_path});
         return;
     };
     defer dir.close();
 
-    var iterator = dir.iterate();
-
-    while (try iterator.next()) |entry| {
+    while (try dir.next()) |entry| {
         // Build full path
         const full_path = try std.fs.path.join(allocator, &.{ current_path, entry.name });
         defer allocator.free(full_path);

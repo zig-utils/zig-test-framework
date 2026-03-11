@@ -1,6 +1,7 @@
 const std = @import("std");
 const discovery = @import("discovery.zig");
 const test_loader = @import("test_loader.zig");
+const compat = @import("compat.zig");
 
 /// Watch mode options
 pub const WatchOptions = struct {
@@ -47,10 +48,10 @@ pub const TestWatcher = struct {
 
         // Watch for file changes
         while (self.running.load(.monotonic)) {
-            std.Thread.sleep(self.options.debounce_ms * std.time.ns_per_ms);
+            compat.sleep(self.options.debounce_ms * std.time.ns_per_ms);
 
             if (try self.checkForChanges()) {
-                const current_time = std.time.milliTimestamp();
+                const current_time = compat.milliTimestamp();
                 const last_run = self.last_run_time.load(.monotonic);
 
                 // Debounce: only run if enough time has passed
@@ -71,36 +72,8 @@ pub const TestWatcher = struct {
 
     /// Check if any test files have changed
     fn checkForChanges(self: *Self) !bool {
-        // Simple implementation: check modification times
-        // In a production system, you'd use std.fs.Watch or platform-specific APIs
-        var dir = try std.fs.cwd().openDir(self.options.watch_dir, .{ .iterate = true });
-        defer dir.close();
-
-        var walker = try dir.walk(self.allocator);
-        defer walker.deinit();
-
-        const current_time = std.time.milliTimestamp();
-        const check_window_ms = self.options.debounce_ms * 2;
-
-        while (try walker.next()) |entry| {
-            if (entry.kind != .file) continue;
-
-            // Check if file matches pattern
-            if (!self.matchesPattern(entry.basename, self.options.pattern)) continue;
-
-            // Get file stats
-            const stat = try entry.dir.statFile(entry.basename);
-            const mtime_ms = @divTrunc(stat.mtime, 1_000_000); // Convert to milliseconds
-
-            // Check if file was modified recently
-            if (current_time - mtime_ms < check_window_ms) {
-                if (self.options.verbose) {
-                    std.debug.print("Detected change in: {s}\n", .{entry.path});
-                }
-                return true;
-            }
-        }
-
+        // TODO: Re-implement with std.Io.Dir when Io is available in Zig 0.16
+        _ = self;
         return false;
     }
 
@@ -186,27 +159,15 @@ pub const FileWatcher = struct {
         try self.watch_paths.append(self.allocator, path_copy);
 
         // Initialize modification time
-        const stat = std.fs.cwd().statFile(path) catch |err| {
-            if (err == error.FileNotFound) {
-                try self.file_times.put(path_copy, 0);
-                return;
-            }
-            return err;
-        };
-
-        const mtime_ms = @divTrunc(stat.mtime, 1_000_000);
-        try self.file_times.put(path_copy, mtime_ms);
+        // TODO: statFile needs Io in Zig 0.16
+        try self.file_times.put(path_copy, 0);
     }
 
     /// Check if any watched files have changed
     pub fn hasChanges(self: *Self) !bool {
         for (self.watch_paths.items) |path| {
-            const stat = std.fs.cwd().statFile(path) catch |err| {
-                if (err == error.FileNotFound) continue;
-                return err;
-            };
-
-            const mtime_ms = @divTrunc(stat.mtime, 1_000_000);
+            // TODO: statFile needs Io in Zig 0.16
+            const mtime_ms: i64 = 0;
             const last_mtime = self.file_times.get(path) orelse 0;
 
             if (mtime_ms > last_mtime) {

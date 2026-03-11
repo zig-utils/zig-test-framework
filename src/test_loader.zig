@@ -2,6 +2,7 @@ const std = @import("std");
 const discovery = @import("discovery.zig");
 const coverage = @import("coverage.zig");
 const ui_server = @import("ui_server.zig");
+const compat = @import("compat.zig");
 
 /// Options for running discovered tests
 pub const LoaderOptions = struct {
@@ -48,8 +49,8 @@ pub fn runDiscoveredTests(
     // Clean coverage directory once before all tests if coverage is enabled
     if (options.coverage_options) |cov_opts| {
         if (cov_opts.enabled and cov_opts.clean) {
-            std.fs.cwd().deleteTree(cov_opts.output_dir) catch {};
-            try std.fs.cwd().makePath(cov_opts.output_dir);
+            // TODO: deleteTree needs Io in Zig 0.16
+            compat.makePath(allocator, cov_opts.output_dir) catch {};
         }
     }
 
@@ -65,9 +66,9 @@ pub fn runDiscoveredTests(
             try server.broadcast("test_start", json);
         }
 
-        const start_time = std.time.nanoTimestamp();
+        const start_time = compat.nanoTimestamp();
         const result = try runTestFile(allocator, file.path, options);
-        const end_time = std.time.nanoTimestamp();
+        const end_time = compat.nanoTimestamp();
         const execution_time_ns: u64 = @intCast(end_time - start_time);
 
         files_run += 1;
@@ -162,13 +163,8 @@ fn runTestFileWithoutCoverage(
     try argv.append(allocator, "test");
     try argv.append(allocator, file_path);
 
-    // Create child process
-    var child = std.process.Child.init(argv.items, allocator);
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
-
     // Run the test
-    const term = try child.spawnAndWait();
+    const term = try compat.spawnAndWait(allocator, argv.items, .Inherit, .Inherit);
 
     switch (term) {
         .Exited => |code| {
