@@ -592,7 +592,7 @@ test "Snapshot JSON format" {
     try snap.match(value);
 
     // Cleanup
-    compat.deleteFile(std.testing.allocator,".snapshots/test_snapshot_json.snap") catch {};
+    compat.deleteFile(std.testing.allocator, ".snapshots/test_snapshot_json.snap") catch {};
 }
 
 test "Snapshot mismatch detection" {
@@ -609,7 +609,7 @@ test "Snapshot mismatch detection" {
     try std.testing.expectError(error.SnapshotMismatch, result);
 
     // Cleanup
-    compat.deleteFile(std.testing.allocator,".snapshots/test_mismatch.snap") catch {};
+    compat.deleteFile(std.testing.allocator, ".snapshots/test_mismatch.snap") catch {};
 }
 
 test "Snapshot diff generation" {
@@ -639,8 +639,8 @@ test "Named snapshots" {
     try snap2.matchStringNamed("second", "Second snapshot");
 
     // Cleanup
-    compat.deleteFile(std.testing.allocator,".snapshots/test_named_first.snap") catch {};
-    compat.deleteFile(std.testing.allocator,".snapshots/test_named_second.snap") catch {};
+    compat.deleteFile(std.testing.allocator, ".snapshots/test_named_first.snap") catch {};
+    compat.deleteFile(std.testing.allocator, ".snapshots/test_named_second.snap") catch {};
 }
 
 test "Snapshot cleanup - list snapshots" {
@@ -664,7 +664,7 @@ test "Snapshot cleanup - list snapshots" {
     try std.testing.expect(snapshots.items.len > 0);
 
     // Cleanup
-    compat.deleteFile(std.testing.allocator,".snapshots/cleanup_test_1.snap") catch {};
+    compat.deleteFile(std.testing.allocator, ".snapshots/cleanup_test_1.snap") catch {};
 }
 
 test "Snapshot cleanup - remove unused" {
@@ -688,7 +688,7 @@ test "Snapshot cleanup - remove unused" {
     try std.testing.expect(removed >= 1);
 
     // Cleanup remaining
-    compat.deleteFile(std.testing.allocator,".snapshots/cleanup_used.snap") catch {};
+    compat.deleteFile(std.testing.allocator, ".snapshots/cleanup_used.snap") catch {};
 }
 
 test "Snapshot compact format" {
@@ -702,5 +702,5 @@ test "Snapshot compact format" {
     try snap.matchString("compact snapshot");
 
     // Cleanup
-    compat.deleteFile(std.testing.allocator,".snapshots/test_compact.snap") catch {};
+    compat.deleteFile(std.testing.allocator, ".snapshots/test_compact.snap") catch {};
 }
