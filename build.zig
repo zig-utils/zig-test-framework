@@ -8,6 +8,7 @@ pub fn build(b: *std.Build) void {
     const lib_module = b.addModule("zig-test-framework", .{
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
+        .link_libc = true,
     });
 
     // Create the test runner executable
@@ -17,6 +18,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
 
@@ -45,6 +47,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("tests/test_runner_test.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
     const run_test_runner_tests = b.addRunArtifact(test_runner_tests);
@@ -55,6 +58,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("tests/assertions_test.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
     const run_assertions_tests = b.addRunArtifact(assertions_tests);
@@ -65,6 +69,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("tests/suite_test.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
     const run_suite_tests = b.addRunArtifact(suite_tests);
@@ -75,6 +80,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("tests/matchers_test.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
     const run_matchers_tests = b.addRunArtifact(matchers_tests);
@@ -86,6 +92,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("tests/hooks_test.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
             .imports = &.{
                 .{ .name = "zig-test-framework", .module = lib_module },
             },
@@ -102,6 +109,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("tests/reporter_test.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
     const run_reporter_tests = b.addRunArtifact(reporter_tests);
@@ -112,6 +120,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("tests/cli_test.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
     const run_cli_tests = b.addRunArtifact(cli_tests);
@@ -122,6 +131,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("tests/filter_test.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
     const run_filter_tests = b.addRunArtifact(filter_tests);
@@ -132,6 +142,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("tests/mock_test.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
         }),
     });
     const run_mock_tests = b.addRunArtifact(mock_tests);
@@ -143,6 +154,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("tests/comprehensive_mock_test.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
             .imports = &.{
                 .{ .name = "zig-test-framework", .module = lib_module },
             },
@@ -160,6 +172,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("tests/snapshot_usage_test.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
             .imports = &.{
                 .{ .name = "zig-test-framework", .module = lib_module },
             },
@@ -177,6 +190,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("tests/time_test.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
             .imports = &.{
                 .{ .name = "zig-test-framework", .module = lib_module },
             },
@@ -207,6 +221,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("examples/basic_test.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
             .imports = &.{
                 .{ .name = "zig-test-framework", .module = lib_module },
             },
@@ -219,6 +234,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("examples/advanced_test.zig"),
             .target = target,
             .optimize = optimize,
+            .link_libc = true,
             .imports = &.{
                 .{ .name = "zig-test-framework", .module = lib_module },
             },

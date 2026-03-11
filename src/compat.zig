@@ -7,6 +7,23 @@ const builtin = @import("builtin");
 // Time utilities (std.time.milliTimestamp removed in 0.16)
 // ============================================================
 
+/// Get clock_gettime result as seconds and nanoseconds.
+fn getRealtimeClock() struct { sec: i64, nsec: i64 } {
+    if (comptime builtin.os.tag == .linux or builtin.os.tag == .macos or
+        builtin.os.tag == .ios or builtin.os.tag == .tvos or
+        builtin.os.tag == .watchos or builtin.os.tag == .visionos or
+        builtin.os.tag == .freebsd or builtin.os.tag == .netbsd or
+        builtin.os.tag == .openbsd or builtin.os.tag == .dragonfly)
+    {
+        var ts: std.c.timespec = .{ .sec = 0, .nsec = 0 };
+        const rc = std.c.clock_gettime(std.c.CLOCK.REALTIME, &ts);
+        if (rc == 0) {
+            return .{ .sec = ts.sec, .nsec = ts.nsec };
+        }
+    }
+    return .{ .sec = 0, .nsec = 0 };
+}
+
 /// Get current wall-clock time in nanoseconds since Unix epoch.
 /// Replaces std.time.nanoTimestamp() which was removed in Zig 0.16.
 pub fn nanoTimestamp() i128 {
@@ -16,8 +33,8 @@ pub fn nanoTimestamp() i128 {
         const intervals: i128 = @as(i128, @as(u64, ft.dwHighDateTime) << 32 | @as(u64, ft.dwLowDateTime));
         return intervals * 100 - EPOCH_DIFF;
     } else {
-        const ts = std.posix.clock_gettime(.REALTIME) catch return 0;
-        return @as(i128, ts.sec) * 1_000_000_000 + @as(i128, ts.nsec);
+        const clock = getRealtimeClock();
+        return @as(i128, clock.sec) * 1_000_000_000 + @as(i128, clock.nsec);
     }
 }
 
@@ -25,17 +42,13 @@ pub fn nanoTimestamp() i128 {
 /// Replaces std.time.milliTimestamp() which was removed in Zig 0.16.
 pub fn milliTimestamp() i64 {
     if (comptime builtin.os.tag == .windows) {
-        // On Windows, use the Win32 API
         const ft = std.os.windows.GetSystemTimeAsFileTime();
-        // Convert from Windows FILETIME (100ns intervals since 1601-01-01)
-        // to Unix timestamp in milliseconds
-        const EPOCH_DIFF: i64 = 11644473600000; // ms between 1601 and 1970
+        const EPOCH_DIFF: i64 = 11644473600000;
         const intervals: i64 = @bitCast(@as(u64, ft.dwHighDateTime) << 32 | @as(u64, ft.dwLowDateTime));
         return @divFloor(intervals, 10000) - EPOCH_DIFF;
     } else {
-        // POSIX: use clock_gettime with REALTIME clock
-        const ts = std.posix.clock_gettime(.REALTIME) catch return 0;
-        return @as(i64, ts.sec) * 1000 + @divFloor(@as(i64, ts.nsec), 1_000_000);
+        const clock = getRealtimeClock();
+        return @as(i64, clock.sec) * 1000 + @divFloor(@as(i64, clock.nsec), 1_000_000);
     }
 }
 
@@ -48,22 +61,50 @@ pub fn milliTimestamp() i64 {
 pub fn sleep(ns: u64) void {
     const s: isize = @intCast(ns / std.time.ns_per_s);
     const remaining_ns: isize = @intCast(ns % std.time.ns_per_s);
-    var ts = std.posix.timespec{ .sec = s, .nsec = remaining_ns };
+    var ts: std.c.timespec = .{ .sec = s, .nsec = remaining_ns };
     while (true) {
         const rc = std.c.nanosleep(&ts, &ts);
-        switch (std.c.errno(rc)) {
-            .SUCCESS => break,
-            .INTR => continue,
-            else => break,
-        }
+        if (rc == 0) break;
+        // On EINTR, retry with remaining time
+        continue;
     }
 }
 
 // ============================================================
-// Mutex (std.Thread.Mutex still exists in 0.16 but may move)
+// Mutex (std.Thread.Mutex removed in 0.16-dev.2736+)
+// Uses simple spinlock via atomics since std.Io.Mutex needs Io.
 // ============================================================
 
-pub const Mutex = std.Thread.Mutex;
+/// Simple spinlock mutex for use without Io.
+/// Replaces std.Thread.Mutex which was removed in Zig 0.16.
+pub const Mutex = struct {
+    state: std.atomic.Value(u32) = std.atomic.Value(u32).init(0),
+
+    pub fn lock(self: *Mutex) void {
+        while (self.state.cmpxchgWeak(0, 1, .acquire, .monotonic) != null) {
+            // Spin
+            std.atomic.spinLoopHint();
+        }
+    }
+
+    pub fn unlock(self: *Mutex) void {
+        self.state.store(0, .release);
+    }
+
+    pub fn tryLock(self: *Mutex) bool {
+        return self.state.cmpxchgStrong(0, 1, .acquire, .monotonic) == null;
+    }
+};
+
+// ============================================================
+// File descriptor close wrapper
+// ============================================================
+
+/// Close a file descriptor using libc.
+/// Replaces std.posix.close() which was removed in Zig 0.16.
+fn closeFd(fd: std.posix.fd_t) void {
+    _ = std.c.close(fd);
+}
 
 // ============================================================
 // File I/O helpers (std.fs.cwd() removed, needs std.Io now)
@@ -79,7 +120,7 @@ pub fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]const u8
         if (err == error.FileNotFound) return error.FileNotFound;
         return err;
     };
-    defer std.posix.close(fd);
+    defer closeFd(fd);
 
     // Read file in chunks
     var result = std.ArrayList(u8).empty;
@@ -106,7 +147,7 @@ pub fn writeFile(allocator: std.mem.Allocator, path: []const u8, content: []cons
         .CREAT = true,
         .TRUNC = true,
     }, 0o644) catch |err| return err;
-    defer std.posix.close(fd);
+    defer closeFd(fd);
 
     var remaining = content;
     while (remaining.len > 0) {
@@ -274,7 +315,7 @@ pub fn spawnAndWait(
                 const dev_null: [*:0]const u8 = "/dev/null";
                 const null_fd = std.posix.openatZ(std.posix.AT.FDCWD, dev_null, .{ .ACCMODE = .WRONLY }, 0) catch std.process.exit(127);
                 if (std.c.dup2(null_fd, 1) < 0) std.process.exit(127);
-                std.posix.close(null_fd);
+                closeFd(null_fd);
             },
             else => {},
         }
@@ -285,7 +326,7 @@ pub fn spawnAndWait(
                 const dev_null: [*:0]const u8 = "/dev/null";
                 const null_fd = std.posix.openatZ(std.posix.AT.FDCWD, dev_null, .{ .ACCMODE = .WRONLY }, 0) catch std.process.exit(127);
                 if (std.c.dup2(null_fd, 2) < 0) std.process.exit(127);
-                std.posix.close(null_fd);
+                closeFd(null_fd);
             },
             else => {},
         }
