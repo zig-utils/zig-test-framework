@@ -1,5 +1,5 @@
 const std = @import("std");
-const ztf = @import("zig-test-framework");
+const ztf = @import("zig_test_framework");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

@@ -1,5 +1,5 @@
 const std = @import("std");
-const ztf = @import("zig-test-framework");
+const ztf = @import("zig_test_framework");
 
 // Global state to track hook execution
 var hook_execution_log: std.ArrayList([]const u8) = undefined;

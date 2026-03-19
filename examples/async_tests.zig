@@ -1,5 +1,5 @@
 const std = @import("std");
-const zig_test = @import("zig-test");
+const zig_test = @import("zig_test");
 
 /// Example: Basic async test
 pub fn example_basic_async_test() !void {

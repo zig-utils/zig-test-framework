@@ -5,7 +5,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     // Create the main library module
-    const lib_module = b.addModule("zig-test-framework", .{
+    const lib_module = b.addModule("zig_test_framework", .{
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .link_libc = true,
@@ -94,7 +94,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
             .imports = &.{
-                .{ .name = "zig-test-framework", .module = lib_module },
+                .{ .name = "zig_test_framework", .module = lib_module },
             },
         }),
     });
@@ -156,7 +156,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
             .imports = &.{
-                .{ .name = "zig-test-framework", .module = lib_module },
+                .{ .name = "zig_test_framework", .module = lib_module },
             },
         }),
     });
@@ -174,7 +174,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
             .imports = &.{
-                .{ .name = "zig-test-framework", .module = lib_module },
+                .{ .name = "zig_test_framework", .module = lib_module },
             },
         }),
     });
@@ -192,7 +192,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
             .imports = &.{
-                .{ .name = "zig-test-framework", .module = lib_module },
+                .{ .name = "zig_test_framework", .module = lib_module },
             },
         }),
     });
@@ -223,7 +223,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
             .imports = &.{
-                .{ .name = "zig-test-framework", .module = lib_module },
+                .{ .name = "zig_test_framework", .module = lib_module },
             },
         }),
     });
@@ -236,7 +236,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
             .imports = &.{
-                .{ .name = "zig-test-framework", .module = lib_module },
+                .{ .name = "zig_test_framework", .module = lib_module },
             },
         }),
     });

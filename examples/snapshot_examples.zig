@@ -1,5 +1,5 @@
 const std = @import("std");
-const zig_test = @import("zig-test");
+const zig_test = @import("zig_test");
 
 /// Example 1: Basic String Snapshot
 pub fn example_basic_string_snapshot() !void {

@@ -1,6 +1,6 @@
 .{
     .fingerprint = 0x26d5202ff2b5e864,
-    .name = .@"zig-test-framework",
+    .name = .zig_test_framework,
     .version = "0.1.1",
     .paths = .{
         "build.zig",
