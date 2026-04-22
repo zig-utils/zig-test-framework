@@ -13,7 +13,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        zig-version: ['latest']
+        zig-version: ['0.17.0-dev.56+a8226cd53']
       fail-fast: false
 
     steps:
@@ -21,9 +21,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Zig
-        uses: home-lang/pantry-setup@v1
+        uses: mlugg/setup-zig@v2
         with:
-          packages: ziglang.org@${{ matrix.zig-version }}
+          version: '0.17.0-dev.56+a8226cd53'
 
       - name: Verify Zig installation
         run: zig version
@@ -46,9 +46,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Zig
-        uses: home-lang/pantry-setup@v1
+        uses: mlugg/setup-zig@v2
         with:
-          packages: ziglang.org@latest
+          version: '0.17.0-dev.56+a8226cd53'
 
       - name: Check formatting
         run: zig fmt --check .
@@ -62,9 +62,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Zig
-        uses: home-lang/pantry-setup@v1
+        uses: mlugg/setup-zig@v2
         with:
-          packages: ziglang.org@latest
+          version: '0.17.0-dev.56+a8226cd53'
 
       - name: Generate docs
         run: zig build-lib -femit-docs src/lib.zig
@@ -84,9 +84,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Zig
-        uses: home-lang/pantry-setup@v1
+        uses: mlugg/setup-zig@v2
         with:
-          packages: ziglang.org@latest
+          version: '0.17.0-dev.56+a8226cd53'
 
       - name: Install kcov
         continue-on-error: true
