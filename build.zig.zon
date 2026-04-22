@@ -1,5 +1,5 @@
 .{
-    .fingerprint = 0x26d5202ff2b5e864,
+    .fingerprint = 0x7e5c9f10e0802663,
     .name = .zig_test_framework,
     .version = "0.1.1",
     .paths = .{

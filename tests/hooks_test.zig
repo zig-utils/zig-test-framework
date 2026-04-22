@@ -6,7 +6,7 @@ var hook_execution_log: std.ArrayList([]const u8) = undefined;
 var allocator_global: std.mem.Allocator = undefined;
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
