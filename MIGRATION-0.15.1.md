@@ -13,6 +13,7 @@ The framework is ~95% complete. The build system is fully updated for Zig 0.15.1
 In Zig 0.15.1, the ArrayList API changed significantly:
 
 **OLD (Zig 0.13)**:
+
 ```zig
 var list = std.ArrayList(T).init(allocator);
 defer list.deinit();
@@ -20,6 +21,7 @@ try list.append(item);
 ```
 
 **NEW (Zig 0.15.1)**:
+
 ```zig
 var list: std.ArrayList(T) = .empty;
 defer list.deinit(allocator);  // allocator now required
@@ -46,16 +48,19 @@ try list.append(allocator, item);  // allocator now required
 ### How to Fix
 
 For each file, replace:
+
 ```zig
 .field = std.ArrayList(Type).init(allocator),
 ```
 
 With:
+
 ```zig
 .field = .empty,
 ```
 
 And update `.deinit()` calls:
+
 ```zig
 // OLD
 self.field.deinit();
@@ -65,6 +70,7 @@ self.field.deinit(self.allocator);
 ```
 
 And update `.append()` calls:
+
 ```zig
 // OLD
 try self.field.append(item);
@@ -76,10 +82,11 @@ try self.field.append(self.allocator, item);
 ### Example Fix
 
 **Before:**
+
 ```zig
-pub fn init(allocator: std.mem.Allocator) !*Self {
+pub fn init(allocator: std.mem.Allocator) !_Self {
     const suite = try allocator.create(Self);
-    suite.* = Self{
+    suite._ = Self{
         .name = name,
         .tests = std.ArrayList(TestCase).init(allocator),  // OLD
         .allocator = allocator,
@@ -87,20 +94,21 @@ pub fn init(allocator: std.mem.Allocator) !*Self {
     return suite;
 }
 
-pub fn deinit(self: *Self) void {
+pub fn deinit(self: _Self) void {
     self.tests.deinit();  // OLD
 }
 
-pub fn addTest(self: *Self, test_case: TestCase) !void {
+pub fn addTest(self: _Self, test_case: TestCase) !void {
     try self.tests.append(test_case);  // OLD
 }
 ```
 
 **After:**
+
 ```zig
-pub fn init(allocator: std.mem.Allocator) !*Self {
+pub fn init(allocator: std.mem.Allocator) !_Self {
     const suite = try allocator.create(Self);
-    suite.* = Self{
+    suite._ = Self{
         .name = name,
         .tests = .empty,  // NEW
         .allocator = allocator,
@@ -108,11 +116,11 @@ pub fn init(allocator: std.mem.Allocator) !*Self {
     return suite;
 }
 
-pub fn deinit(self: *Self) void {
+pub fn deinit(self: _Self) void {
     self.tests.deinit(self.allocator);  // NEW
 }
 
-pub fn addTest(self: *Self, test_case: TestCase) !void {
+pub fn addTest(self: _Self, test_case: TestCase) !void {
     try self.tests.append(self.allocator, test_case);  // NEW
 }
 ```
@@ -120,6 +128,7 @@ pub fn addTest(self: *Self, test_case: TestCase) !void {
 ## Build System (✅ COMPLETE)
 
 The build.zig is fully updated for Zig 0.15.1:
+
 - Uses `b.createModule()` with `.root_module` for executables
 - Uses `.imports` array for module dependencies
 - Uses `b.addModule()` for library exports

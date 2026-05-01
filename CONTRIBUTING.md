@@ -33,23 +33,27 @@ Thank you for your interest in contributing to the Zig Test Framework! This docu
 ### Development Setup
 
 1. **Fork the repository**
+
    ```bash
-   # Clone your fork
+# Clone your fork
    git clone https://github.com/YOUR_USERNAME/zig-test-framework.git
    cd zig-test-framework
    ```
 
 2. **Add upstream remote**
+
    ```bash
    git remote add upstream https://github.com/ORIGINAL_OWNER/zig-test-framework.git
    ```
 
 3. **Build the project**
+
    ```bash
    zig build
    ```
 
 4. **Run tests**
+
    ```bash
    zig build test
    zig build examples
@@ -80,6 +84,7 @@ zig-test-framework/
 ## Development Workflow
 
 1. **Create a feature branch**
+
    ```bash
    git checkout -b feature/your-feature-name
    ```
@@ -90,24 +95,27 @@ zig-test-framework/
    - Update documentation as needed
 
 3. **Test your changes**
+
    ```bash
-   # Run all tests
+# Run all tests
    zig build test
 
-   # Run examples
+# Run examples
    zig build examples
 
-   # Format code
+# Format code
    zig fmt src/ tests/ examples/
    ```
 
 4. **Commit your changes**
+
    ```bash
    git add .
    git commit -m "feat: add amazing feature"
    ```
 
 5. **Push to your fork**
+
    ```bash
    git push origin feature/your-feature-name
    ```
@@ -199,6 +207,7 @@ zig test src/assertions.zig
 ### Writing Tests
 
 1. **Unit Tests** - Test individual functions in isolation
+
    ```zig
    test "toBe should compare primitive values" {
        const allocator = std.testing.allocator;
@@ -208,6 +217,7 @@ zig test src/assertions.zig
    ```
 
 2. **Integration Tests** - Test multiple components together
+
    ```zig
    test "runner executes suite with hooks" {
        // Test setup, execution, teardown flow
@@ -286,6 +296,7 @@ Closes #123
 ### PR Template
 
 Fill out the PR template completely:
+
 - Description of changes
 - Related issues
 - Testing performed
@@ -332,6 +343,7 @@ We follow [Semantic Versioning](https://semver.org/):
 ## Recognition
 
 Contributors will be recognized in:
+
 - CHANGELOG.md for their contributions
 - GitHub contributors page
 - Release notes

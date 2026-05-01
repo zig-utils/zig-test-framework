@@ -88,6 +88,7 @@ pub fn createSnapshot(
 Creates a new snapshot instance for the given test.
 
 **Parameters:**
+
 - `allocator`: Memory allocator for snapshot operations
 - `test_name`: Unique name identifying this snapshot
 - `options`: Configuration options (see SnapshotOptions below)
@@ -145,6 +146,7 @@ pub fn matchString(self: *Snapshot, value: []const u8) !void
 Matches a string value against the snapshot.
 
 **Example:**
+
 ```zig
 var snap = ztf.createSnapshot(alloc, "string_test", .{ .update = true });
 try snap.matchString("Expected output");
@@ -163,6 +165,7 @@ pub fn matchStringNamed(
 Matches a named string snapshot, allowing multiple snapshots per test.
 
 **Example:**
+
 ```zig
 var snap = ztf.createSnapshot(alloc, "config_test", .{ .update = true });
 try snap.matchStringNamed("dev", "dev configuration");
@@ -178,6 +181,7 @@ pub fn match(self: *Snapshot, value: anytype) !void
 Matches any value against the snapshot (structs, primitives, etc.).
 
 **Example:**
+
 ```zig
 const data = .{ .count = 42, .enabled = true };
 var snap = ztf.createSnapshot(alloc, "data_test", .{ .update = true });
@@ -197,6 +201,7 @@ pub fn matchNamed(
 Matches a named value snapshot.
 
 **Example:**
+
 ```zig
 var snap = ztf.createSnapshot(alloc, "states_test", .{ .update = true });
 try snap.matchNamed("initial", initial_state);
@@ -231,6 +236,7 @@ var snap = ztf.createSnapshot(alloc, "pretty_test", .{
 ```
 
 **Output:**
+
 ```
 struct {
   name: Alice
@@ -252,6 +258,7 @@ var snap = ztf.createSnapshot(alloc, "json_test", .{
 ```
 
 **Output:**
+
 ```json
 {
   "name": "Alice",
@@ -272,6 +279,7 @@ var snap = ztf.createSnapshot(alloc, "compact_test", .{
 ```
 
 **Output:**
+
 ```
 struct{name:Alice,age:30,active:true}
 ```
@@ -335,11 +343,15 @@ Snapshot mismatch for 'user_test':
 
 === Snapshot Diff ===
 Line 1:
+
   - Expected: Alice
   + Received: Bob
+
 Line 2:
+
   - Expected: 30
   + Received: 25
+
 =====================
 
 Run with --update-snapshots to update.
@@ -650,11 +662,13 @@ try snap.matchString("value");
 **Problem:** Snapshot comparison always fails even though values look identical
 
 **Possible causes:**
+
 1. Hidden whitespace differences
 2. Different serialization format
 3. Dynamic values (timestamps, random IDs)
 
 **Solutions:**
+
 - Check the diff output carefully
 - Use consistent formats (`.format = .json`)
 - Replace dynamic values with stable ones
@@ -696,7 +710,7 @@ The Zig Test Framework snapshot API is inspired by and compatible with Jest/Vite
 | Inline snapshots | `expect(value).toMatchInlineSnapshot()` | `snap.matchInline(file, line, value)` |
 | Update snapshots | `--updateSnapshots` flag | `update: true` option |
 | Snapshot formats | Automatic | Configurable (JSON, text, compact, raw) |
-| File location | `__snapshots__/` | `.snapshots/` (configurable) |
+| File location | `**snapshots**/` | `.snapshots/` (configurable) |
 
 ## Conclusion
 

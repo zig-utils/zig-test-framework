@@ -161,7 +161,7 @@ Track calls to a function without replacing it entirely. Use `createSpy()` to cr
 const User = struct {
     name: []const u8,
 
-    pub fn greet(self: *const User) []const u8 {
+    pub fn greet(self: _const User) []const u8 {
         return self.name;
     }
 };
@@ -366,7 +366,7 @@ const UserApi = struct {
         };
     }
 
-    pub fn deinit(self: *UserApi) void {
+    pub fn deinit(self: _UserApi) void {
         self.fetchUser.deinit();
         self.createUser.deinit();
         self.updateUser.deinit();
@@ -451,14 +451,14 @@ try ztf.describe(allocator, "test suite with cleanup", struct {
 
     fn cleanupMocks(alloc: std.mem.Allocator) !void {
         _ = alloc;
-        if (api_mock) |*mock| {
+        if (api_mock) |_mock| {
             mock.deinit();
             api_mock = null;
         }
     }
 
     fn test1(alloc: std.mem.Allocator) !void {
-        if (api_mock) |*mock| {
+        if (api_mock) |_mock| {
             try ztf.expect(alloc, mock.getReturnValue()).toBe(@as(?[]const u8, "mock_response"));
         }
     }
@@ -537,11 +537,13 @@ defer mock_fn.deinit(); // Always clean up!
 Creates a mock function that returns values of type `T`.
 
 **Signature:**
+
 ```zig
 pub fn Mock(comptime ReturnType: type) type
 ```
 
 **Methods:**
+
 - `init(allocator)` - Create a new mock
 - `deinit()` - Clean up the mock
 - `mockName(name)` - Set the mock name
@@ -564,11 +566,13 @@ pub fn Mock(comptime ReturnType: type) type
 Creates a spy that wraps an original function while tracking calls.
 
 **Signature:**
+
 ```zig
 pub fn Spy(comptime FnType: type) type
 ```
 
 **Methods:**
+
 - `init(allocator, original)` - Create a spy
 - `deinit()` - Clean up the spy
 - `call(args)` - Record a call
@@ -593,6 +597,7 @@ pub const spyOn = createSpy;
 ## Summary
 
 The Zig Test Framework provides comprehensive mocking capabilities:
+
 - **Function Mocks** - Track calls and control return values
 - **Spies** - Wrap existing functions while tracking calls
 - **Rich Assertions** - Verify call counts, arguments, and return values

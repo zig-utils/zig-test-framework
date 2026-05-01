@@ -71,10 +71,12 @@ pub fn setSystemTime(allocator: std.mem.Allocator, timestamp: ?i64) void
 Sets the system time to a specific timestamp (milliseconds since Unix epoch).
 
 **Parameters:**
+
 - `allocator`: Memory allocator
 - `timestamp`: Unix timestamp in milliseconds, or `null` to reset to real time
 
 **Example:**
+
 ```zig
 // Set to Jan 1, 2020, 00:00:00 UTC
 ztf.setSystemTime(alloc, 1577836800000);
@@ -92,6 +94,7 @@ pub fn useFakeTimers(allocator: std.mem.Allocator) void
 Enable fake timers mode. Time will not advance unless explicitly set or advanced.
 
 **Example:**
+
 ```zig
 ztf.useFakeTimers(alloc);
 ztf.setSystemTime(alloc, 1577836800000);
@@ -107,6 +110,7 @@ pub fn useRealTimers(allocator: std.mem.Allocator) void
 Disable fake timers and return to real system time.
 
 **Example:**
+
 ```zig
 ztf.useRealTimers(alloc);
 // Time advances normally again
@@ -121,10 +125,12 @@ pub fn advanceTimersByTime(allocator: std.mem.Allocator, ms: i64) void
 Advance mocked time by a specified number of milliseconds.
 
 **Parameters:**
+
 - `allocator`: Memory allocator
 - `ms`: Milliseconds to advance
 
 **Example:**
+
 ```zig
 ztf.setSystemTime(alloc, 1577836800000);
 ztf.advanceTimersByTime(alloc, 60000); // Advance 1 minute
@@ -140,6 +146,7 @@ pub fn now(allocator: std.mem.Allocator) i64
 Get the current time (mocked or real) as a Unix timestamp in milliseconds.
 
 **Example:**
+
 ```zig
 const current_time = ztf.time.now(alloc);
 ```
@@ -153,6 +160,7 @@ pub fn cleanupTimeMock() void
 Clean up time mocking resources. Call this after your tests complete.
 
 **Example:**
+
 ```zig
 defer ztf.cleanupTimeMock();
 ```
@@ -268,12 +276,14 @@ pub fn fromISO(iso_string: []const u8) !i64
 ```
 
 **Example:**
+
 ```zig
 const timestamp = try ztf.DateHelper.fromISO("2020-01-01T00:00:00.000Z");
 // Returns: 1577836800000 (approximately)
 ```
 
 **Supported formats:**
+
 - `"2020-01-01T00:00:00.000Z"` - Full ISO 8601 with milliseconds
 - `"2020-01-01T12:30:45.123Z"` - Any time of day
 - `"2020-06-15T10:20:30.000Z"` - Any date
@@ -287,6 +297,7 @@ pub fn getYear(timestamp: i64) u16
 ```
 
 **Example:**
+
 ```zig
 const timestamp: i64 = 1577836800000; // 2020-01-01
 const year = ztf.DateHelper.getYear(timestamp);
@@ -302,6 +313,7 @@ pub fn now(self: DateHelper) i64
 ```
 
 **Example:**
+
 ```zig
 const helper = ztf.createDateHelper(alloc);
 ztf.setSystemTime(alloc, 1577836800000);

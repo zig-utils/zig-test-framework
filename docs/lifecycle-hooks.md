@@ -111,6 +111,7 @@ try ztf.describe(allocator, "Database tests", struct {
 ## Nested Hooks
 
 Hooks can be nested and will run in the appropriate order:
+
 - `beforeEach` hooks run from outer to inner (parent before child)
 - `afterEach` hooks run from inner to outer (child before parent)
 - `beforeAll` hooks run once per suite before any tests
@@ -197,6 +198,7 @@ try ztf.describe(allocator, "Outer suite", struct {
 ```
 
 **Output order:**
+
 ```
 Outer beforeAll
 Outer beforeEach
@@ -255,7 +257,7 @@ try ztf.describe(allocator, "Database operations", struct {
 
     fn releaseConnection(alloc: std.mem.Allocator) !void {
         _ = alloc;
-        if (connection) |*conn| {
+        if (connection) |_conn| {
             conn.active = false;
         }
         connection = null;
@@ -344,7 +346,7 @@ try ztf.describe(allocator, "API Client with mocks", struct {
 
     fn resetMocks(alloc: std.mem.Allocator) !void {
         _ = alloc;
-        if (api_mock) |*mock| {
+        if (api_mock) |_mock| {
             mock.deinit();
         }
         api_mock = null;
@@ -563,6 +565,7 @@ try ztf.describe(allocator, "Multiple hooks", struct {
 ```
 
 **Output:**
+
 ```
 Setup 1
 Setup 2
@@ -579,15 +582,18 @@ Cleanup 2
 Registers a function to run once before all tests in the current describe block.
 
 **Signature:**
+
 ```zig
 pub fn beforeAll(allocator: std.mem.Allocator, hook: HookFn) !void
 ```
 
 **Parameters:**
+
 - `allocator`: Memory allocator
 - `hook`: Function to run before all tests
 
 **Hook Function Type:**
+
 ```zig
 pub const HookFn = *const fn (allocator: std.mem.Allocator) anyerror!void;
 ```
@@ -597,6 +603,7 @@ pub const HookFn = *const fn (allocator: std.mem.Allocator) anyerror!void;
 Registers a function to run once after all tests in the current describe block.
 
 **Signature:**
+
 ```zig
 pub fn afterAll(allocator: std.mem.Allocator, hook: HookFn) !void
 ```
@@ -606,6 +613,7 @@ pub fn afterAll(allocator: std.mem.Allocator, hook: HookFn) !void
 Registers a function to run before each test in the current describe block (and nested blocks).
 
 **Signature:**
+
 ```zig
 pub fn beforeEach(allocator: std.mem.Allocator, hook: HookFn) !void
 ```
@@ -615,6 +623,7 @@ pub fn beforeEach(allocator: std.mem.Allocator, hook: HookFn) !void
 Registers a function to run after each test in the current describe block (and nested blocks).
 
 **Signature:**
+
 ```zig
 pub fn afterEach(allocator: std.mem.Allocator, hook: HookFn) !void
 ```
@@ -622,6 +631,7 @@ pub fn afterEach(allocator: std.mem.Allocator, hook: HookFn) !void
 ## Summary
 
 Lifecycle hooks in Zig Test Framework provide powerful capabilities for:
+
 - Setting up and tearing down test fixtures
 - Managing shared resources across tests
 - Organizing test code with proper setup/cleanup separation

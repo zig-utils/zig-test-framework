@@ -89,6 +89,7 @@ zig-test --test-dir tests
 This will automatically discover and run all `*.test.zig` files in the `tests` directory.
 
 **CLI Options for Test Discovery:**
+
 - `--test-dir <dir>` - Directory to search for tests (default: current directory)
 - `--pattern <pattern>` - File pattern to match (default: `*.test.zig`)
 - `--no-recursive` - Disable recursive directory search
@@ -96,6 +97,7 @@ This will automatically discover and run all `*.test.zig` files in the `tests` d
 - `--verbose` - Show detailed output
 
 **Examples:**
+
 ```bash
 # Run all tests in tests/ directory
 zig-test --test-dir tests
@@ -120,7 +122,7 @@ const ztf = @import("zig-test-framework");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+    defer * = gpa.deinit();
     const allocator = gpa.allocator();
 
     // Define a test suite
@@ -186,11 +188,11 @@ const defined: ?i32 = 42;
 try expect(alloc, defined).toBeDefined();
 
 // Arrays/Slices
-const numbers = [_]i32{1, 2, 3, 4, 5};
+const numbers = [*]i32{1, 2, 3, 4, 5};
 const matcher = expectArray(alloc, &numbers);
 try matcher.toHaveLength(5);
 try matcher.toContain(3);
-try matcher.toContainAll(&[_]i32{1, 3, 5});
+try matcher.toContainAll(&[*]i32{1, 3, 5});
 
 // Error assertions
 const FailingFn = struct {
@@ -228,7 +230,7 @@ try matcher.toHaveField("age", @as(u32, 30));
 
 ```zig
 try ztf.describe(allocator, "Database tests", struct {
-    var db_connection: ?*Database = null;
+    var db*connection: ?*Database = null;
 
     fn testSuite(alloc: std.mem.Allocator) !void {
         // Runs once before all tests
@@ -280,7 +282,7 @@ try ztf.describe(allocator, "Database tests", struct {
 ```zig
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+    defer * = gpa.deinit();
     const allocator = gpa.allocator();
 
     // Define your test suites...
@@ -307,16 +309,16 @@ The `cleanupRegistry()` function frees all test suites, test cases, and associat
 try ztf.describe(allocator, "User Service", struct {
     fn testSuite(alloc: std.mem.Allocator) !void {
         try ztf.describe(alloc, "Authentication", struct {
-            fn nestedSuite(nested_alloc: std.mem.Allocator) !void {
-                try ztf.it(nested_alloc, "should login with valid credentials", testValidLogin);
-                try ztf.it(nested_alloc, "should reject invalid credentials", testInvalidLogin);
+            fn nestedSuite(nested*alloc: std.mem.Allocator) !void {
+                try ztf.it(nested*alloc, "should login with valid credentials", testValidLogin);
+                try ztf.it(nested*alloc, "should reject invalid credentials", testInvalidLogin);
             }
 
-            fn testValidLogin(nested_alloc: std.mem.Allocator) !void {
+            fn testValidLogin(nested*alloc: std.mem.Allocator) !void {
                 // Test implementation
             }
 
-            fn testInvalidLogin(nested_alloc: std.mem.Allocator) !void {
+            fn testInvalidLogin(nested*alloc: std.mem.Allocator) !void {
                 // Test implementation
             }
         }.nestedSuite);
@@ -330,19 +332,21 @@ Full Jest-compatible mocking API:
 
 ```zig
 // Create a mock
-var mock_fn = ztf.createMock(alloc, i32);
-defer mock_fn.deinit();
+var mock*fn = ztf.createMock(alloc, i32);
+defer mock*fn.deinit();
 
 // Record calls and assert
-try mock_fn.recordCall("arg1");
-try mock_fn.toHaveBeenCalled();
-try mock_fn.toHaveBeenCalledTimes(1);
-try mock_fn.toHaveBeenCalledWith("arg1");
+try mock*fn.recordCall("arg1");
+try mock*fn.toHaveBeenCalled();
+try mock*fn.toHaveBeenCalledTimes(1);
+try mock*fn.toHaveBeenCalledWith("arg1");
 
 // Mock return values
-_ = try mock_fn.mockReturnValue(42);
-_ = try mock_fn.mockReturnValueOnce(100);
-const value = mock_fn.getReturnValue(); // Returns 100 first time, then 42
+
+* = try mock*fn.mockReturnValue(42);
+* = try mock*fn.mockReturnValueOnce(100);
+
+const value = mock*fn.getReturnValue(); // Returns 100 first time, then 42
 
 // Spy on existing functions
 const original: i32 = 99;
@@ -362,7 +366,7 @@ Capture and compare test outputs:
 
 ```zig
 // Create a snapshot
-var snap = ztf.createSnapshot(alloc, "user_test", .{
+var snap = ztf.createSnapshot(alloc, "user*test", .{
     .update = true,
     .format = .json,
 });
@@ -372,8 +376,8 @@ const user = User{ .name = "Alice", .age = 30 };
 try snap.match(user);
 
 // Named snapshots
-try snap.matchNamed("initial_state", initial);
-try snap.matchNamed("after_update", updated);
+try snap.matchNamed("initial*state", initial);
+try snap.matchNamed("after*update", updated);
 
 // String snapshots
 try snap.matchString("Expected output");
@@ -438,8 +442,10 @@ Run tests asynchronously with full concurrency support:
 // Basic async test
 try ztf.itAsync(allocator, "async operation", struct {
     fn run(alloc: std.mem.Allocator) !void {
-        _ = alloc;
-        std.Thread.sleep(100 * std.time.ns_per_ms);
+
+        * = alloc;
+
+        std.Thread.sleep(100 * std.time.ns*per*ms);
         // Test async operations
     }
 }.run);
@@ -454,8 +460,8 @@ try ztf.itAsyncOnly(allocator, "focused async test", testFn);
 // Using AsyncTestExecutor for advanced control
 var executor = ztf.AsyncTestExecutor.init(allocator, .{
     .concurrent = true,
-    .max_concurrent = 5,
-    .default_timeout_ms = 5000,
+    .max*concurrent = 5,
+    .default*timeout*ms = 5000,
 });
 defer executor.deinit();
 
@@ -483,14 +489,14 @@ try ztf.describeTimeout(allocator, "Timed Suite", 5000, struct {
 }.suite);
 
 // Global timeout configuration
-const global_config = ztf.GlobalTimeoutConfig{
-    .default_timeout_ms = 5000,
+const global*config = ztf.GlobalTimeoutConfig{
+    .default*timeout*ms = 5000,
     .enabled = true,
-    .allow_extension = true,
-    .max_extension_ms = 30000,
+    .allow*extension = true,
+    .max*extension*ms = 30000,
 };
 
-var enforcer = ztf.TimeoutEnforcer.init(allocator, global_config);
+var enforcer = ztf.TimeoutEnforcer.init(allocator, global*config);
 defer enforcer.deinit();
 
 // Timeout context for manual control
@@ -561,6 +567,7 @@ The framework integrates with external coverage tools to provide comprehensive c
 Install one of the supported coverage tools:
 
 **kcov (recommended)**:
+
 ```bash
 # macOS
 brew install kcov
@@ -575,6 +582,7 @@ cmake . && make && sudo make install
 ```
 
 **grindcov**:
+
 ```bash
 # Install Valgrind first
 brew install valgrind  # macOS
@@ -633,6 +641,7 @@ xdg-open coverage/index.html  # Linux
 ```
 
 The HTML report provides:
+
 - **Line Coverage**: Shows which lines of code were executed
 - **Branch Coverage**: Shows which code branches were taken
 - **Function Coverage**: Shows which functions were called
@@ -722,11 +731,11 @@ See [docs/api.md](docs/api.md) for complete API documentation.
 
 Check out the `examples/` directory for comprehensive examples:
 
-- `examples/basic_test.zig` - Basic assertions and test structure
-- `examples/advanced_test.zig` - Hooks, matchers, mocking, and advanced features
-- `examples/async_tests.zig` - Async test execution (8 scenarios)
-- `examples/timeout_examples.zig` - Timeout handling (10 scenarios)
-- See `ASYNC_TEST_COMPLETE.md` and `TIMEOUT_COMPLETE.md` for detailed documentation
+- `examples/basic*test.zig` - Basic assertions and test structure
+- `examples/advanced*test.zig` - Hooks, matchers, mocking, and advanced features
+- `examples/async*tests.zig` - Async test execution (8 scenarios)
+- `examples/timeout*examples.zig` - Timeout handling (10 scenarios)
+- See `ASYNC*TEST*COMPLETE.md` and `TIMEOUT*COMPLETE.md` for detailed documentation
 
 ## Building from Source
 
@@ -754,17 +763,20 @@ zig build examples
 Comprehensive guides and API documentation:
 
 ### Core Features
+
 - **[Lifecycle Hooks](docs/lifecycle-hooks.md)** - beforeAll, beforeEach, afterEach, afterAll with nested scoping
 - **[Mocking & Spying](docs/mocks.md)** - Complete Jest-compatible mocking API with 20+ methods
 - **[Snapshot Testing](docs/snapshots.md)** - Multiple formats, named snapshots, and diff visualization
 - **[Date & Time Mocking](docs/dates-and-times.md)** - Control time with `setSystemTime()` and Jest-compatible APIs
 
 ### Additional Resources
+
 - **[Examples](examples/)** - Basic and advanced usage examples
 - **[Test Files](tests/)** - Comprehensive test suites demonstrating all features
 - **[API Reference](src/)** - Full source code documentation
 
 ### Quick Links
+
 - **Run specific test suites:**
   - `zig build test-hooks` - Lifecycle hooks tests
   - `zig build test-mocks` - Mocking and spying tests
@@ -798,14 +810,15 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## Acknowledgments
 
 Inspired by:
+
 - [Jest](https://jestjs.io/) - JavaScript testing framework
 - [Vitest](https://vitest.dev/) - Vite-native testing framework
 - [Bun Test](https://bun.sh/docs/cli/test) - Bun's built-in test runner
 
 ## Support
 
-- GitHub Issues: https://github.com/zig-utils/zig-test-framework/issues
-- Documentation: https://github.com/zig-utils/zig-test-framework/tree/main/docs
+- GitHub Issues: <https://github.com/zig-utils/zig-test-framework/issues>
+- Documentation: <https://github.com/zig-utils/zig-test-framework/tree/main/docs>
 
 ---
 
