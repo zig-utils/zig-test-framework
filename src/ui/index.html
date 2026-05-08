@@ -249,7 +249,7 @@
     <div class="container">
         <header>
             <h1>⚡ Zig Test Framework</h1>
-            <div class="status disconnected" id="connection-status">
+            <div class="disconnected status" id="connection-status">
                 <span class="spinner"></span> Connecting...
             </div>
         </header>
@@ -259,15 +259,15 @@
                 <div class="stat-value" id="total-tests">0</div>
                 <div class="stat-label">Total</div>
             </div>
-            <div class="stat passed">
+            <div class="passed stat">
                 <div class="stat-value" id="passed-tests">0</div>
                 <div class="stat-label">Passed</div>
             </div>
-            <div class="stat failed">
+            <div class="failed stat">
                 <div class="stat-value" id="failed-tests">0</div>
                 <div class="stat-label">Failed</div>
             </div>
-            <div class="stat skipped">
+            <div class="skipped stat">
                 <div class="stat-value" id="skipped-tests">0</div>
                 <div class="stat-label">Skipped</div>
             </div>
@@ -311,7 +311,7 @@
 
             eventSource.addEventListener('connected', () => {
                 elements.connectionStatus.textContent = 'Connected';
-                elements.connectionStatus.className = 'status connected';
+                elements.connectionStatus.className = 'connected status';
             });
 
             eventSource.addEventListener('run_start', (e) => {
@@ -354,7 +354,7 @@
 
             eventSource.onerror = () => {
                 elements.connectionStatus.textContent = 'Disconnected';
-                elements.connectionStatus.className = 'status disconnected';
+                elements.connectionStatus.className = 'disconnected status';
                 eventSource.close();
 
                 setTimeout(connectSSE, 3000);
