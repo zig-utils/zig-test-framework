@@ -29,3 +29,4 @@ coverage/
 test-results/
 junit.xml
 /.snapshots
+pantry
