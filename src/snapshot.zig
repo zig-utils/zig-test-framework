@@ -251,16 +251,16 @@ pub const Snapshot = struct {
             },
             .@"struct" => {
                 try writer.writeAll("{\n");
-                inline for (type_info.@"struct".fields, 0..) |field, i| {
+                inline for (type_info.@"struct".field_names, 0..) |field_name, i| {
                     if (self.options.pretty_print) {
                         try writer.writeAll("  ");
                     }
-                    try writer.print("\"{s}\": ", .{field.name});
+                    try writer.print("\"{s}\": ", .{field_name});
 
-                    const field_value = @field(value, field.name);
+                    const field_value = @field(value, field_name);
                     try self.formatJsonValue(writer, field_value);
 
-                    if (i < type_info.@"struct".fields.len - 1) {
+                    if (i < type_info.@"struct".field_names.len - 1) {
                         try writer.writeAll(",");
                     }
                     if (self.options.pretty_print) {
@@ -307,10 +307,10 @@ pub const Snapshot = struct {
 
         try writer.writeAll("{\n");
 
-        inline for (type_info.@"struct".fields, 0..) |field, i| {
-            try writer.print("  \"{s}\": ", .{field.name});
+        inline for (type_info.@"struct".field_names, 0..) |field_name, i| {
+            try writer.print("  \"{s}\": ", .{field_name});
 
-            const field_value = @field(value, field.name);
+            const field_value = @field(value, field_name);
             const FieldType = @TypeOf(field_value);
             const field_info = @typeInfo(FieldType);
 
@@ -328,7 +328,7 @@ pub const Snapshot = struct {
                 else => try writer.print("{any}", .{field_value}),
             }
 
-            if (i < type_info.@"struct".fields.len - 1) {
+            if (i < type_info.@"struct".field_names.len - 1) {
                 try writer.writeAll(",\n");
             } else {
                 try writer.writeAll("\n");
