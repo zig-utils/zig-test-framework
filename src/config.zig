@@ -29,6 +29,9 @@ pub const TestOptions = struct {
     recursive: bool = true,
     filter: ?[]const u8 = null,
     timeout: ?u64 = null,
+    retries: usize = 0,
+    repeat: usize = 1,
+    fail_on_flaky: bool = false,
 };
 
 pub const ParallelOptions = struct {
@@ -86,6 +89,7 @@ pub const ConfigError = error{
     InvalidJobs,
     InvalidPort,
     InvalidTimeout,
+    InvalidRepeat,
     InvalidDebounce,
     InvalidShard,
 };
@@ -183,6 +187,7 @@ fn validate(config: TestConfig) !void {
     if (config.test_options.timeout) |timeout| {
         if (timeout == 0) return ConfigError.InvalidTimeout;
     }
+    if (config.test_options.repeat == 0) return ConfigError.InvalidRepeat;
     if (config.watch.debounce_ms == 0) return ConfigError.InvalidDebounce;
     const has_shard_index = config.sharding.index != null;
     const has_shard_count = config.sharding.count != null;
@@ -199,6 +204,9 @@ test "TestConfig defaults match CLI discovery defaults" {
     try std.testing.expectEqualStrings(".", config.test_options.test_dir);
     try std.testing.expect(config.test_options.recursive);
     try std.testing.expect(config.test_options.timeout == null);
+    try std.testing.expectEqual(@as(usize, 0), config.test_options.retries);
+    try std.testing.expectEqual(@as(usize, 1), config.test_options.repeat);
+    try std.testing.expect(!config.test_options.fail_on_flaky);
     try std.testing.expect(config.sharding.index == null);
     try std.testing.expect(config.sharding.count == null);
     try std.testing.expect(!config.parallel.enabled);
@@ -219,6 +227,9 @@ test "configuration validation rejects invalid runtime values" {
     invalid.parallel.jobs = 0;
     try std.testing.expectError(ConfigError.InvalidJobs, validate(invalid));
     invalid.parallel.jobs = null;
+    invalid.test_options.repeat = 0;
+    try std.testing.expectError(ConfigError.InvalidRepeat, validate(invalid));
+    invalid.test_options.repeat = 1;
     invalid.sharding.index = 2;
     try std.testing.expectError(ConfigError.InvalidShard, validate(invalid));
     invalid.sharding.count = 1;

@@ -26,6 +26,12 @@ pub const LoaderOptions = struct {
     junit_output: []const u8 = "test-results.xml",
     /// Global per-file timeout checked by the shared execution policy
     timeout_ms: ?u64 = null,
+    /// Additional process attempts after a failed test file.
+    retries: usize = 0,
+    /// Number of successful repetitions required for every selected file.
+    repeat: usize = 1,
+    /// Treat recovered failures as an unsuccessful run.
+    fail_on_flaky: bool = false,
     /// Optional output supplied by a CLI host. Embedded/test callers default
     /// to stderr so they do not interfere with Zig's stdout test protocol.
     reporter_writer: ?*std.Io.Writer = null,
@@ -85,6 +91,11 @@ pub fn runDiscoveredTests(
     };
     var results = reporter.TestResults.init(allocator);
     defer results.deinit();
+    var executed_cases: std.ArrayList(suite.TestCase) = .empty;
+    defer {
+        for (executed_cases.items) |*test_case| test_case.deinit(allocator);
+        executed_cases.deinit(allocator);
+    }
 
     try events.emit(.{ .run_started = selected_files });
 
@@ -120,23 +131,49 @@ pub fn runDiscoveredTests(
             try server.broadcast("test_start", json);
         }
 
-        const start_time = compat.nanoTimestamp();
-        var result = try runTestFile(allocator, file.path, options);
-        const end_time = compat.nanoTimestamp();
-        const execution_time_ns: u64 = @intCast(end_time - start_time);
-        const timed_out = policy.timedOut(execution_time_ns);
-        if (timed_out) result = false;
-
         files_run += 1;
         var test_case = suite.TestCase.init(file.name, externalTestNoop);
         test_case.file = file.relative_path;
-        test_case.execution_time_ns = execution_time_ns;
-        test_case.status = if (result) .passed else .failed;
-        if (timed_out) {
-            test_case.error_message = "External test file exceeded the configured timeout";
-        } else if (!result) {
-            test_case.error_message = "External zig test process failed";
+        const repeat_count = @max(options.repeat, 1);
+        var attempt_number: usize = 0;
+        var had_failure = false;
+        var final_failure = false;
+
+        repetitions: for (1..repeat_count + 1) |repetition| {
+            for (1..options.retries + 2) |attempt_in_repetition| {
+                attempt_number += 1;
+                const start_time = compat.nanoTimestamp();
+                var passed = try runTestFile(allocator, file.path, options);
+                const duration_ns: u64 = @intCast(compat.nanoTimestamp() - start_time);
+                const timed_out = policy.timedOut(duration_ns);
+                if (timed_out) passed = false;
+                const error_message = if (timed_out)
+                    try allocator.dupe(u8, "External test file exceeded the configured timeout")
+                else if (!passed)
+                    try allocator.dupe(u8, "External zig test process failed")
+                else
+                    null;
+                try test_case.attempts.append(allocator, .{
+                    .number = attempt_number,
+                    .repetition = repetition,
+                    .status = if (passed) .passed else .failed,
+                    .duration_ns = duration_ns,
+                    .error_message = error_message,
+                });
+                test_case.execution_time_ns += duration_ns;
+
+                if (passed) break;
+                had_failure = true;
+                test_case.error_message = error_message;
+                if (attempt_in_repetition == options.retries + 1) {
+                    final_failure = true;
+                    break :repetitions;
+                }
+            }
         }
+        test_case.status = if (final_failure) .failed else if (had_failure) .flaky else .passed;
+        if (!final_failure) test_case.error_message = null;
+        try executed_cases.append(allocator, test_case);
         try results.addTest(&test_case);
         try events.emit(.{ .test_finished = &test_case });
         try events.emit(.{ .suite_finished = file.relative_path });
@@ -144,14 +181,20 @@ pub fn runDiscoveredTests(
         // Notify UI of test file end
         if (options.ui_server) |server| {
             var buffer: [512]u8 = undefined;
-            const status = if (result) "passed" else "failed";
-            const json = try std.fmt.bufPrint(&buffer, "{{\"name\":\"{s}\",\"status\":\"{s}\",\"execution_time_ns\":{d},\"error_message\":\"\"}}", .{ file.name, status, execution_time_ns });
+            const json = try std.fmt.bufPrint(&buffer, "{{\"name\":\"{s}\",\"status\":\"{s}\",\"execution_time_ns\":{d},\"attempts\":{d},\"error_message\":\"\"}}", .{
+                file.name,
+                @tagName(test_case.status),
+                test_case.execution_time_ns,
+                test_case.attempts.items.len,
+            });
             try server.broadcast("test_end", json);
             try server.broadcast("suite_end", try std.fmt.bufPrint(&buffer, "{{\"name\":\"{s}\"}}", .{file.name}));
         }
 
-        if (result) {
+        if (test_case.status == .passed) {
             if (options.verbose) std.debug.print("  ✓ {s} passed\n", .{file.name});
+        } else if (test_case.status == .flaky) {
+            std.debug.print("  ~ {s} flaky after {d} attempts\n", .{ file.name, test_case.attempts.items.len });
         } else {
             std.debug.print("  ✗ {s} failed\n", .{file.name});
             if (policy.shouldStop(&results)) {
@@ -188,7 +231,7 @@ pub fn runDiscoveredTests(
     try events.emit(.{ .run_finished = &results });
     try reporters.flush();
 
-    return results.failed == 0;
+    return results.failed == 0 and (!options.fail_on_flaky or results.flaky == 0);
 }
 
 fn externalTestNoop(_: std.mem.Allocator) !void {}
@@ -292,6 +335,9 @@ test "LoaderOptions default values" {
     try std.testing.expectEqual(reporter.ReporterType.spec, options.reporter_type);
     try std.testing.expectEqualStrings("test-results.xml", options.junit_output);
     try std.testing.expectEqual(@as(?u64, null), options.timeout_ms);
+    try std.testing.expectEqual(@as(usize, 0), options.retries);
+    try std.testing.expectEqual(@as(usize, 1), options.repeat);
+    try std.testing.expect(!options.fail_on_flaky);
     try std.testing.expectEqual(@as(?*std.Io.Writer, null), options.reporter_writer);
     try std.testing.expectEqual(@as(?coverage.CoverageOptions, null), options.coverage_options);
 }

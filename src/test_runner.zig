@@ -19,6 +19,12 @@ pub const RunnerOptions = struct {
     n_jobs: ?usize = null, // Number of parallel jobs
     junit_output: []const u8 = "test-results.xml",
     timeout_ms: ?u64 = null,
+    /// Additional attempts after a failed execution.
+    retries: usize = 0,
+    /// Number of times every selected test is required to pass.
+    repeat: usize = 1,
+    /// Treat tests that pass after a retry as an unsuccessful run.
+    fail_on_flaky: bool = false,
     /// Optional output supplied by a CLI host. Embedded/test callers default
     /// to stderr so they do not interfere with Zig's stdout test protocol.
     reporter_writer: ?*std.Io.Writer = null,
@@ -75,7 +81,7 @@ pub const TestRunner = struct {
         }
 
         // Run tests in parallel or sequential based on options
-        if (self.options.parallel) {
+        if (self.options.parallel and self.options.retries == 0 and self.options.repeat == 1) {
             const parallel_opts = parallel.ParallelOptions{
                 .enabled = true,
                 .n_jobs = self.options.n_jobs,
@@ -95,7 +101,8 @@ pub const TestRunner = struct {
             }
 
             try reporters.flush();
-            return all_passed and self.results.failed == 0;
+            return all_passed and self.results.failed == 0 and
+                (!self.options.fail_on_flaky or self.results.flaky == 0);
         }
 
         // Sequential execution (original behavior)
@@ -113,7 +120,8 @@ pub const TestRunner = struct {
         // Flush output
         try reporters.flush();
 
-        return self.results.failed == 0;
+        return self.results.failed == 0 and
+            (!self.options.fail_on_flaky or self.results.flaky == 0);
     }
 
     fn addSuiteResults(self: *Self, test_suite: *suite.TestSuite) !void {
@@ -189,52 +197,88 @@ pub const TestRunner = struct {
     fn runTest(self: *Self, test_case: *suite.TestCase, test_suite: *suite.TestSuite, events: pipeline.EventStream) !void {
         try events.emit(.{ .test_started = test_case.name });
 
+        for (test_case.attempts.items) |attempt| {
+            if (attempt.error_message) |message| self.allocator.free(message);
+        }
+        test_case.attempts.clearRetainingCapacity();
+        test_case.execution_time_ns = 0;
+        test_case.error_message = null;
+
+        const retries = test_case.retry_count orelse self.options.retries;
+        const repeat_count = @max(self.options.repeat, 1);
+        var attempt_number: usize = 0;
+        var had_failure = false;
+        var final_failure = false;
+
+        repetitions: for (1..repeat_count + 1) |repetition| {
+            for (1..retries + 2) |attempt_in_repetition| {
+                attempt_number += 1;
+                const passed = try self.runSingleAttempt(test_case, test_suite, repetition, attempt_number);
+                if (passed) break;
+
+                had_failure = true;
+                if (attempt_in_repetition == retries + 1) {
+                    final_failure = true;
+                    break :repetitions;
+                }
+            }
+        }
+
+        if (!final_failure) {
+            test_case.status = if (had_failure) .flaky else .passed;
+            test_case.error_message = null;
+        }
+
+        try self.results.addTest(test_case);
+        try events.emit(.{ .test_finished = test_case });
+    }
+
+    fn runSingleAttempt(
+        self: *Self,
+        test_case: *suite.TestCase,
+        test_suite: *suite.TestSuite,
+        repetition: usize,
+        attempt_number: usize,
+    ) !bool {
         test_case.status = .running;
+        test_case.error_message = null;
         const start_time = compat.nanoTimestamp();
 
-        // Get all beforeEach hooks (including parent hooks)
         var before_hooks = try test_suite.getAllBeforeEachHooks(self.allocator);
         defer before_hooks.deinit(self.allocator);
 
-        // Run beforeEach hooks
         var before_failed = false;
         for (before_hooks.items) |hook| {
             hook(self.allocator) catch |err| {
                 test_case.status = .failed;
-                const err_msg = try std.fmt.allocPrint(self.allocator, "beforeEach hook failed: {any}", .{err});
-                test_case.error_message = err_msg;
+                test_case.error_message = try std.fmt.allocPrint(
+                    self.allocator,
+                    "beforeEach hook failed: {any}",
+                    .{err},
+                );
                 before_failed = true;
                 break;
             };
         }
 
-        // Run the actual test if beforeEach succeeded
         if (!before_failed) {
             test_case.test_fn(self.allocator) catch |err| {
                 test_case.status = .failed;
-                const err_msg = try std.fmt.allocPrint(self.allocator, "{any}", .{err});
-                test_case.error_message = err_msg;
+                test_case.error_message = try std.fmt.allocPrint(self.allocator, "{any}", .{err});
             };
-
-            if (test_case.status == .running) {
-                test_case.status = .passed;
-            }
+            if (test_case.status == .running) test_case.status = .passed;
         }
 
-        // Get all afterEach hooks (including parent hooks)
         var after_hooks = try test_suite.getAllAfterEachHooks(self.allocator);
         defer after_hooks.deinit(self.allocator);
-
-        // Run afterEach hooks (always run, even if test failed)
         for (after_hooks.items) |hook| {
             hook(self.allocator) catch |err| {
                 std.debug.print("afterEach hook failed: {any}\n", .{err});
             };
         }
 
-        const end_time = compat.nanoTimestamp();
-        test_case.execution_time_ns = @intCast(end_time - start_time);
-        if (test_case.status == .passed and self.policy().timedOut(test_case.execution_time_ns)) {
+        const duration_ns: u64 = @intCast(compat.nanoTimestamp() - start_time);
+        if (test_case.status == .passed and self.policy().timedOut(duration_ns)) {
             test_case.status = .failed;
             test_case.error_message = try std.fmt.allocPrint(
                 self.allocator,
@@ -242,9 +286,15 @@ pub const TestRunner = struct {
                 .{self.options.timeout_ms.?},
             );
         }
-
-        try self.results.addTest(test_case);
-        try events.emit(.{ .test_finished = test_case });
+        test_case.execution_time_ns += duration_ns;
+        try test_case.attempts.append(self.allocator, .{
+            .number = attempt_number,
+            .repetition = repetition,
+            .status = test_case.status,
+            .duration_ns = duration_ns,
+            .error_message = test_case.error_message,
+        });
+        return test_case.status == .passed;
     }
 
     /// Skip all tests in a suite
@@ -302,6 +352,9 @@ test "RunnerOptions default values" {
     try std.testing.expectEqual(ReporterType.spec, options.reporter_type);
     try std.testing.expectEqual(true, options.use_colors);
     try std.testing.expectEqual(@as(?u64, null), options.timeout_ms);
+    try std.testing.expectEqual(@as(usize, 0), options.retries);
+    try std.testing.expectEqual(@as(usize, 1), options.repeat);
+    try std.testing.expect(!options.fail_on_flaky);
 }
 
 test "RunnerOptions custom values" {
@@ -316,4 +369,144 @@ test "RunnerOptions custom values" {
     try std.testing.expectEqualStrings("test", options.filter.?);
     try std.testing.expectEqual(ReporterType.json, options.reporter_type);
     try std.testing.expectEqual(false, options.use_colors);
+}
+
+var flaky_fixture_runs: usize = 0;
+var failing_fixture_runs: usize = 0;
+var skipped_by_bail_runs: usize = 0;
+var repeated_fixture_runs: usize = 0;
+var timeout_fixture_runs: usize = 0;
+
+fn flakyFixture(_: std.mem.Allocator) !void {
+    flaky_fixture_runs += 1;
+    if (flaky_fixture_runs == 1) return error.TransientFailure;
+}
+
+fn failingFixture(_: std.mem.Allocator) !void {
+    failing_fixture_runs += 1;
+    return error.DeterministicFailure;
+}
+
+fn skippedByBailFixture(_: std.mem.Allocator) !void {
+    skipped_by_bail_runs += 1;
+}
+
+fn repeatedFixture(_: std.mem.Allocator) !void {
+    repeated_fixture_runs += 1;
+}
+
+fn timeoutFixture(_: std.mem.Allocator) !void {
+    timeout_fixture_runs += 1;
+    compat.sleep(std.time.ns_per_ms);
+}
+
+test "retries record deterministic flaky attempt history" {
+    flaky_fixture_runs = 0;
+    const allocator = std.testing.allocator;
+    var registry = suite.TestRegistry.init(allocator);
+    defer registry.deinit();
+    const test_suite = try suite.TestSuite.init(allocator, "retry suite");
+    try test_suite.addTest(suite.TestCase.init("flaky fixture", flakyFixture).withRetries(1));
+    try registry.registerSuite(test_suite);
+
+    var output: [4096]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&output);
+    var runner = TestRunner.init(allocator, &registry, .{
+        .reporter_writer = &writer,
+        .use_colors = false,
+    });
+    defer runner.deinit();
+
+    try std.testing.expect(try runner.run());
+    const test_case = &test_suite.tests.items[0];
+    try std.testing.expectEqual(suite.TestStatus.flaky, test_case.status);
+    try std.testing.expectEqual(@as(usize, 2), test_case.attempts.items.len);
+    try std.testing.expectEqual(suite.TestStatus.failed, test_case.attempts.items[0].status);
+    try std.testing.expectEqual(suite.TestStatus.passed, test_case.attempts.items[1].status);
+    try std.testing.expectEqual(@as(usize, 1), runner.results.flaky);
+
+    var strict_runner = TestRunner.init(allocator, &registry, .{
+        .retries = 1,
+        .fail_on_flaky = true,
+        .reporter_writer = &writer,
+        .use_colors = false,
+    });
+    defer strict_runner.deinit();
+    flaky_fixture_runs = 0;
+    try std.testing.expect(!try strict_runner.run());
+}
+
+test "repeat mode runs every required passing repetition" {
+    repeated_fixture_runs = 0;
+    const allocator = std.testing.allocator;
+    var registry = suite.TestRegistry.init(allocator);
+    defer registry.deinit();
+    const test_suite = try suite.TestSuite.init(allocator, "repeat suite");
+    try test_suite.addTest(suite.TestCase.init("repeated fixture", repeatedFixture));
+    try registry.registerSuite(test_suite);
+
+    var output: [4096]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&output);
+    var runner = TestRunner.init(allocator, &registry, .{
+        .repeat = 3,
+        .reporter_writer = &writer,
+        .use_colors = false,
+    });
+    defer runner.deinit();
+
+    try std.testing.expect(try runner.run());
+    try std.testing.expectEqual(@as(usize, 3), repeated_fixture_runs);
+    try std.testing.expectEqual(@as(usize, 3), test_suite.tests.items[0].attempts.items.len);
+}
+
+test "bail waits until retries are exhausted" {
+    failing_fixture_runs = 0;
+    skipped_by_bail_runs = 0;
+    const allocator = std.testing.allocator;
+    var registry = suite.TestRegistry.init(allocator);
+    defer registry.deinit();
+    const test_suite = try suite.TestSuite.init(allocator, "bail suite");
+    try test_suite.addTest(suite.TestCase.init("always fails", failingFixture));
+    try test_suite.addTest(suite.TestCase.init("must be skipped", skippedByBailFixture));
+    try registry.registerSuite(test_suite);
+
+    var output: [4096]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&output);
+    var runner = TestRunner.init(allocator, &registry, .{
+        .bail = true,
+        .retries = 2,
+        .reporter_writer = &writer,
+        .use_colors = false,
+    });
+    defer runner.deinit();
+
+    try std.testing.expect(!try runner.run());
+    try std.testing.expectEqual(@as(usize, 3), failing_fixture_runs);
+    try std.testing.expectEqual(@as(usize, 0), skipped_by_bail_runs);
+    try std.testing.expectEqual(@as(usize, 3), test_suite.tests.items[0].attempts.items.len);
+}
+
+test "timeouts are evaluated for every retry attempt" {
+    timeout_fixture_runs = 0;
+    const allocator = std.testing.allocator;
+    var registry = suite.TestRegistry.init(allocator);
+    defer registry.deinit();
+    const test_suite = try suite.TestSuite.init(allocator, "timeout suite");
+    try test_suite.addTest(suite.TestCase.init("times out", timeoutFixture));
+    try registry.registerSuite(test_suite);
+
+    var output: [4096]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&output);
+    var runner = TestRunner.init(allocator, &registry, .{
+        .timeout_ms = 0,
+        .retries = 1,
+        .reporter_writer = &writer,
+        .use_colors = false,
+    });
+    defer runner.deinit();
+
+    try std.testing.expect(!try runner.run());
+    try std.testing.expectEqual(@as(usize, 2), timeout_fixture_runs);
+    try std.testing.expectEqual(@as(usize, 2), test_suite.tests.items[0].attempts.items.len);
+    try std.testing.expectEqual(suite.TestStatus.failed, test_suite.tests.items[0].status);
 }

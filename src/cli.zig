@@ -45,6 +45,10 @@ pub const CLIOptions = struct {
     junit_output: ?[]const u8 = null,
     // Timeout options
     timeout: ?u64 = null, // Global timeout in milliseconds
+    // Retry and repetition options
+    retries: usize = 0,
+    repeat: usize = 1,
+    fail_on_flaky: bool = false,
 };
 
 pub const version = build_options.version;
@@ -75,6 +79,9 @@ pub const CLI = struct {
         self.options.no_recursive = !config.test_options.recursive;
         self.options.filter = config.test_options.filter;
         self.options.timeout = config.test_options.timeout;
+        self.options.retries = config.test_options.retries;
+        self.options.repeat = config.test_options.repeat;
+        self.options.fail_on_flaky = config.test_options.fail_on_flaky;
         self.options.shard_index = config.sharding.index;
         self.options.shard_count = config.sharding.count;
         self.options.parallel = config.parallel.enabled;
@@ -107,6 +114,32 @@ pub const CLI = struct {
                 self.options.version = true;
             } else if (std.mem.eql(u8, arg, "--bail") or std.mem.eql(u8, arg, "-b")) {
                 self.options.bail = true;
+            } else if (std.mem.eql(u8, arg, "--retry") or std.mem.eql(u8, arg, "--retries")) {
+                if (i + 1 >= args.len) {
+                    std.debug.print("Error: {s} requires a value\n", .{arg});
+                    return CLIError.MissingValue;
+                }
+                i += 1;
+                self.options.retries = std.fmt.parseInt(usize, args[i], 10) catch {
+                    std.debug.print("Error: {s} must be a valid number\n", .{arg});
+                    return CLIError.InvalidArgument;
+                };
+            } else if (std.mem.eql(u8, arg, "--repeat")) {
+                if (i + 1 >= args.len) {
+                    std.debug.print("Error: --repeat requires a value\n", .{});
+                    return CLIError.MissingValue;
+                }
+                i += 1;
+                self.options.repeat = std.fmt.parseInt(usize, args[i], 10) catch {
+                    std.debug.print("Error: --repeat must be a valid positive number\n", .{});
+                    return CLIError.InvalidArgument;
+                };
+                if (self.options.repeat == 0) {
+                    std.debug.print("Error: --repeat must be greater than zero\n", .{});
+                    return CLIError.InvalidArgument;
+                }
+            } else if (std.mem.eql(u8, arg, "--fail-on-flaky")) {
+                self.options.fail_on_flaky = true;
             } else if (std.mem.eql(u8, arg, "--verbose")) {
                 self.options.verbose = true;
             } else if (std.mem.eql(u8, arg, "--quiet") or std.mem.eql(u8, arg, "-q")) {
@@ -351,6 +384,9 @@ pub const CLI = struct {
             \\    -h, --help              Show this help message
             \\    -v, --version           Show version information
             \\    -b, --bail              Stop test execution on first failure
+            \\    --retry <N>             Retry each failed test up to N times
+            \\    --repeat <N>            Require N successful runs of each selected test
+            \\    --fail-on-flaky         Exit unsuccessfully when a retry recovers a failure
             \\    --filter <pattern>      Run only tests matching pattern
             \\    --grep <pattern>        Same as --filter (alias)
             \\    --reporter <name>       Set reporter type (spec, dot, json, tap, junit)
@@ -414,6 +450,8 @@ pub const CLI = struct {
             \\    zig-test --update-snapshots           Update all snapshots
             \\    zig-test --watch                      Run in watch mode
             \\    zig-test --timeout 10000              Set 10s timeout for all tests
+            \\    zig-test --retry 2 --fail-on-flaky    Detect and reject flaky tests
+            \\    zig-test --repeat 100 --filter parser Stress-run selected tests
             \\    zig-test --profile-memory --fail-on-leak
             \\    zig-test --parallel --jobs 4          Run with 4 parallel workers
             \\    zig-test --config zig-test.json       Load config from file
@@ -441,6 +479,9 @@ pub const CLI = struct {
             .n_jobs = self.options.jobs,
             .junit_output = self.options.junit_output orelse "test-results.xml",
             .timeout_ms = self.options.timeout,
+            .retries = self.options.retries,
+            .repeat = self.options.repeat,
+            .fail_on_flaky = self.options.fail_on_flaky,
         };
     }
 };
@@ -660,6 +701,35 @@ test "CLI parse timeout" {
     const args = [_][]const u8{ "zig-test", "--timeout", "5000" };
     try cli.parse(&args);
     try std.testing.expectEqual(@as(?u64, 5000), cli.options.timeout);
+}
+
+test "CLI parses retry repeat and flaky exit policy" {
+    var cli = CLI.init(std.testing.allocator);
+    const args = [_][]const u8{
+        "zig-test",
+        "--retry",
+        "2",
+        "--repeat",
+        "5",
+        "--fail-on-flaky",
+    };
+    try cli.parse(&args);
+    try std.testing.expectEqual(@as(usize, 2), cli.options.retries);
+    try std.testing.expectEqual(@as(usize, 5), cli.options.repeat);
+    try std.testing.expect(cli.options.fail_on_flaky);
+
+    const runner_options = cli.toRunnerOptions();
+    try std.testing.expectEqual(@as(usize, 2), runner_options.retries);
+    try std.testing.expectEqual(@as(usize, 5), runner_options.repeat);
+    try std.testing.expect(runner_options.fail_on_flaky);
+}
+
+test "CLI rejects a zero repeat count" {
+    var cli = CLI.init(std.testing.allocator);
+    try std.testing.expectError(
+        CLIError.InvalidArgument,
+        cli.parse(&.{ "zig-test", "--repeat", "0" }),
+    );
 }
 
 test "CLI rejects invalid coverage tool" {
