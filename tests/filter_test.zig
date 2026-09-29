@@ -1,19 +1,21 @@
 const std = @import("std");
+const ztf = @import("zig_test_framework");
 
-// Placeholder tests for filter module
-// TODO: Implement comprehensive tests for test filtering
+test "discovery forwards test-name filters to zig test" {
+    const allocator = std.testing.allocator;
+    var discovered = ztf.DiscoveryResult.init(allocator);
+    defer discovered.deinit();
 
-test "filter by test name" {
-    // Test filtering tests by name
-    try std.testing.expect(true);
-}
+    try discovered.addFile(
+        "tests/fixtures/filter_fixture.zig",
+        "fixtures/filter_fixture.zig",
+        "filter_fixture.zig",
+    );
 
-test "filter by pattern" {
-    // Test filtering tests by pattern
-    try std.testing.expect(true);
-}
+    const passed = try ztf.runDiscoveredTests(allocator, &discovered, .{
+        .filter = "selected test passes",
+        .use_colors = false,
+    });
 
-test "filter combination" {
-    // Test combined filters
-    try std.testing.expect(true);
+    try std.testing.expect(passed);
 }

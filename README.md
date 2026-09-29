@@ -94,7 +94,14 @@ This will automatically discover and run all `*.test.zig` files in the `tests` d
 - `--pattern <pattern>` - File pattern to match (default: `*.test.zig`)
 - `--no-recursive` - Disable recursive directory search
 - `--bail` - Stop on first failure
+- `--filter <text>` / `--grep <text>` - Run only Zig tests whose names contain the text
+- `--no-color` - Disable color in child Zig test processes
 - `--verbose` - Show detailed output
+
+Discovery mode rejects options that it cannot honor yet instead of silently
+ignoring them. Reporter selection, quiet output, timeouts, parallel jobs,
+snapshot updates, memory profiling, configuration files, JUnit output, and the
+web UI require the shared execution pipeline planned for future releases.
 
 **Examples:**
 
