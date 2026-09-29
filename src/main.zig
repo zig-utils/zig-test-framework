@@ -1,6 +1,6 @@
 const std = @import("std");
-const lib = @import("lib.zig");
-const compat = @import("compat.zig");
+const lib = @import("zig_test_framework");
+const compat = lib.compat;
 
 // Global signal handler state
 var shutdown_requested = std.atomic.Value(bool).init(false);
