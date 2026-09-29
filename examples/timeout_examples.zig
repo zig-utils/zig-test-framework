@@ -8,7 +8,7 @@ pub fn example_per_test_timeout() !void {
     const fastTest = struct {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
-            std.Thread.sleep(50 * std.time.ns_per_ms);
+            zig_test.compat.sleep(50 * std.time.ns_per_ms);
             std.debug.print("Fast test completed\n", .{});
         }
     }.run;
@@ -26,14 +26,14 @@ pub fn example_suite_timeout() !void {
     const test1 = struct {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
-            std.Thread.sleep(100 * std.time.ns_per_ms);
+            zig_test.compat.sleep(100 * std.time.ns_per_ms);
         }
     }.run;
 
     const test2 = struct {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
-            std.Thread.sleep(100 * std.time.ns_per_ms);
+            zig_test.compat.sleep(100 * std.time.ns_per_ms);
         }
     }.run;
 
@@ -60,7 +60,7 @@ pub fn example_timeout_context() !void {
     std.debug.print("Timeout context started with 1000ms timeout\n", .{});
 
     // Simulate some work
-    std.Thread.sleep(200 * std.time.ns_per_ms);
+    zig_test.compat.sleep(200 * std.time.ns_per_ms);
 
     if (!context.isTimedOut()) {
         std.debug.print("Still within timeout, elapsed: {d}ms, remaining: {d}ms\n", .{
@@ -88,14 +88,14 @@ pub fn example_timeout_extension() !void {
     std.debug.print("Started with 500ms timeout\n", .{});
 
     // Simulate work
-    std.Thread.sleep(400 * std.time.ns_per_ms);
+    zig_test.compat.sleep(400 * std.time.ns_per_ms);
 
     // Need more time!
     try context.extend(500);
     std.debug.print("Extended timeout by 500ms (total: 1000ms)\n", .{});
 
     // Continue work
-    std.Thread.sleep(300 * std.time.ns_per_ms);
+    zig_test.compat.sleep(300 * std.time.ns_per_ms);
 
     if (!context.isTimedOut()) {
         std.debug.print("Completed within extended timeout\n", .{});
@@ -165,7 +165,7 @@ pub fn example_timeout_monitoring() !void {
     std.debug.print("Registered context with 500ms timeout\n", .{});
 
     // Simulate work
-    std.Thread.sleep(600 * std.time.ns_per_ms);
+    zig_test.compat.sleep(600 * std.time.ns_per_ms);
 
     // Check if timed out
     if (context.isTimedOut()) {
@@ -190,11 +190,11 @@ pub fn example_suite_tracker() !void {
 
     // Run some tests
     tracker.incrementTest();
-    std.Thread.sleep(200 * std.time.ns_per_ms);
+    zig_test.compat.sleep(200 * std.time.ns_per_ms);
     tracker.incrementCompleted();
 
     tracker.incrementTest();
-    std.Thread.sleep(200 * std.time.ns_per_ms);
+    zig_test.compat.sleep(200 * std.time.ns_per_ms);
     tracker.incrementCompleted();
 
     std.debug.print("Tests run: {d}/{d}\n", .{ tracker.completed_count, tracker.test_count });
@@ -240,7 +240,7 @@ pub fn example_async_with_timeout() !void {
     const asyncTest = struct {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
-            std.Thread.sleep(100 * std.time.ns_per_ms);
+            zig_test.compat.sleep(100 * std.time.ns_per_ms);
             std.debug.print("Async test completed\n", .{});
         }
     }.run;
@@ -258,12 +258,12 @@ pub fn example_timeout_result() !void {
     var context = zig_test.TimeoutContext.init(allocator, 1000);
     context.start();
 
-    std.Thread.sleep(150 * std.time.ns_per_ms);
+    zig_test.compat.sleep(150 * std.time.ns_per_ms);
 
     // Extend timeout
     try context.extend(500);
 
-    std.Thread.sleep(100 * std.time.ns_per_ms);
+    zig_test.compat.sleep(100 * std.time.ns_per_ms);
 
     context.complete();
 

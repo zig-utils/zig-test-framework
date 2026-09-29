@@ -18,7 +18,7 @@ pub fn example_basic_async_test() !void {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
             // Simulate async work
-            std.Thread.sleep(100 * std.time.ns_per_ms);
+            zig_test.compat.sleep(100 * std.time.ns_per_ms);
             std.debug.print("Async test 1 completed\n", .{});
         }
     }.run;
@@ -54,7 +54,7 @@ pub fn example_async_timeout() !void {
     const slowTest = struct {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
-            std.Thread.sleep(500 * std.time.ns_per_ms); // Takes too long
+            zig_test.compat.sleep(500 * std.time.ns_per_ms); // Takes too long
         }
     }.run;
 
@@ -87,7 +87,7 @@ pub fn example_concurrent_async() !void {
     const asyncTest = struct {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
-            std.Thread.sleep(50 * std.time.ns_per_ms);
+            zig_test.compat.sleep(50 * std.time.ns_per_ms);
         }
     }.run;
 
@@ -97,10 +97,10 @@ pub fn example_concurrent_async() !void {
     try executor.registerTest("concurrent_4", asyncTest);
     try executor.registerTest("concurrent_5", asyncTest);
 
-    const start = std.time.nanoTimestamp();
+    const start = zig_test.compat.nanoTimestamp();
     const results = try executor.executeAll();
     defer allocator.free(results);
-    const duration = std.time.nanoTimestamp() - start;
+    const duration = zig_test.compat.nanoTimestamp() - start;
 
     std.debug.print("Total duration: {d:.2}ms\n", .{
         @as(f64, @floatFromInt(duration)) / 1_000_000.0,
@@ -121,7 +121,7 @@ pub fn example_async_hooks() !void {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
             std.debug.print("Before hook executed\n", .{});
-            std.Thread.sleep(10 * std.time.ns_per_ms);
+            zig_test.compat.sleep(10 * std.time.ns_per_ms);
         }
     }.run;
 
@@ -129,7 +129,7 @@ pub fn example_async_hooks() !void {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
             std.debug.print("After hook executed\n", .{});
-            std.Thread.sleep(10 * std.time.ns_per_ms);
+            zig_test.compat.sleep(10 * std.time.ns_per_ms);
         }
     }.run;
 
@@ -150,7 +150,7 @@ pub fn example_suite_async() !void {
     const asyncTest1 = struct {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
-            std.Thread.sleep(50 * std.time.ns_per_ms);
+            zig_test.compat.sleep(50 * std.time.ns_per_ms);
             std.debug.print("Suite async test 1 passed\n", .{});
         }
     }.run;
@@ -158,7 +158,7 @@ pub fn example_suite_async() !void {
     const asyncTest2 = struct {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
-            std.Thread.sleep(50 * std.time.ns_per_ms);
+            zig_test.compat.sleep(50 * std.time.ns_per_ms);
             std.debug.print("Suite async test 2 passed\n", .{});
         }
     }.run;
@@ -187,7 +187,7 @@ pub fn example_mixed_tests() !void {
     const asyncTest = struct {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
-            std.Thread.sleep(50 * std.time.ns_per_ms);
+            zig_test.compat.sleep(50 * std.time.ns_per_ms);
             std.debug.print("Async test executed\n", .{});
         }
     }.run;
@@ -212,7 +212,7 @@ pub fn example_async_errors() !void {
     const passingTest = struct {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
-            std.Thread.sleep(10 * std.time.ns_per_ms);
+            zig_test.compat.sleep(10 * std.time.ns_per_ms);
         }
     }.run;
 
@@ -220,7 +220,7 @@ pub fn example_async_errors() !void {
     const failingTest = struct {
         fn run(alloc: std.mem.Allocator) !void {
             _ = alloc;
-            std.Thread.sleep(10 * std.time.ns_per_ms);
+            zig_test.compat.sleep(10 * std.time.ns_per_ms);
             return error.AsyncTestFailed;
         }
     }.run;

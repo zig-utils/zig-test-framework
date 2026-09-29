@@ -219,8 +219,8 @@ pub fn example_custom_directory() !void {
     std.debug.print("Example 11: Snapshot created in custom directory\n", .{});
 
     // Cleanup
-    std.fs.cwd().deleteFile(".custom_snapshots/custom_dir_test.snap") catch {};
-    std.fs.cwd().deleteDir(".custom_snapshots") catch {};
+    zig_test.compat.deleteFile(allocator, ".custom_snapshots/custom_dir_test.snap") catch {};
+    zig_test.compat.deleteDir(allocator, ".custom_snapshots") catch {};
 }
 
 /// Example 12: Custom File Extension
@@ -237,7 +237,7 @@ pub fn example_custom_extension() !void {
     std.debug.print("Example 12: Snapshot with custom extension created\n", .{});
 
     // Cleanup
-    std.fs.cwd().deleteFile(".snapshots/custom_ext_test.snapshot") catch {};
+    zig_test.compat.deleteFile(allocator, ".snapshots/custom_ext_test.snapshot") catch {};
 }
 
 /// Example 13: Multiple Formats Comparison

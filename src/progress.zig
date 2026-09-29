@@ -376,15 +376,20 @@ pub const TestProgress = struct {
 
 /// Multi-spinner for parallel operations
 pub const MultiSpinner = struct {
+    const SpinnerEntry = struct {
+        name: []const u8,
+        spinner: Spinner,
+    };
+
     allocator: std.mem.Allocator,
-    spinners: std.ArrayList(struct { name: []const u8, spinner: Spinner }),
+    spinners: std.ArrayList(SpinnerEntry),
 
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .spinners = std.ArrayList(struct { name: []const u8, spinner: Spinner }).empty,
+            .spinners = .empty,
         };
     }
 

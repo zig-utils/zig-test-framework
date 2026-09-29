@@ -757,9 +757,13 @@ zig build
 # Run self-tests
 zig build test
 
-# Run examples
+# Run the basic and advanced examples, and compile-check every example
 zig build examples
 ```
+
+The async, snapshot, progress, and timeout examples are compile-checked rather
+than executed by this step because they intentionally demonstrate delays,
+generated files, interactive output, or failure handling.
 
 ## Requirements
 

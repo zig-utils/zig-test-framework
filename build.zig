@@ -19,6 +19,9 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .imports = &.{
+                .{ .name = "zig_test_framework", .module = lib_module },
+            },
         }),
     });
 
@@ -46,6 +49,9 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .imports = &.{
+                .{ .name = "zig_test_framework", .module = lib_module },
+            },
         }),
     });
     const run_test_runner_tests = b.addRunArtifact(test_runner_tests);
@@ -57,6 +63,9 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .imports = &.{
+                .{ .name = "zig_test_framework", .module = lib_module },
+            },
         }),
     });
     const run_assertions_tests = b.addRunArtifact(assertions_tests);
@@ -68,6 +77,9 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .imports = &.{
+                .{ .name = "zig_test_framework", .module = lib_module },
+            },
         }),
     });
     const run_suite_tests = b.addRunArtifact(suite_tests);
@@ -79,6 +91,9 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .imports = &.{
+                .{ .name = "zig_test_framework", .module = lib_module },
+            },
         }),
     });
     const run_matchers_tests = b.addRunArtifact(matchers_tests);
@@ -108,6 +123,9 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .imports = &.{
+                .{ .name = "zig_test_framework", .module = lib_module },
+            },
         }),
     });
     const run_reporter_tests = b.addRunArtifact(reporter_tests);
@@ -119,6 +137,9 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .imports = &.{
+                .{ .name = "zig_test_framework", .module = lib_module },
+            },
         }),
     });
     const run_cli_tests = b.addRunArtifact(cli_tests);
@@ -144,6 +165,9 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .imports = &.{
+                .{ .name = "zig_test_framework", .module = lib_module },
+            },
         }),
     });
     const run_mock_tests = b.addRunArtifact(mock_tests);
@@ -209,11 +233,14 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_assertions_tests.step);
     test_step.dependOn(&run_suite_tests.step);
     test_step.dependOn(&run_matchers_tests.step);
-    // Note: hooks_test is an executable, run with 'zig build test-hooks'
+    test_step.dependOn(&run_hooks_tests.step);
     test_step.dependOn(&run_reporter_tests.step);
     test_step.dependOn(&run_cli_tests.step);
     test_step.dependOn(&run_filter_tests.step);
     test_step.dependOn(&run_mock_tests.step);
+    test_step.dependOn(&run_comprehensive_mock_tests.step);
+    test_step.dependOn(&run_snapshot_usage_tests.step);
+    test_step.dependOn(&run_time_tests.step);
 
     // Examples
     const basic_example = b.addExecutable(.{
@@ -245,7 +272,65 @@ pub fn build(b: *std.Build) void {
     const run_basic_example = b.addRunArtifact(basic_example);
     const run_advanced_example = b.addRunArtifact(advanced_example);
 
-    const examples_step = b.step("examples", "Run all examples");
+    // These showcase intentionally slow, interactive, or failure-oriented
+    // scenarios, so keep them compile-only while still checking every example.
+    const async_examples = b.addExecutable(.{
+        .name = "async_examples",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/async_tests.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .imports = &.{
+                .{ .name = "zig_test", .module = lib_module },
+            },
+        }),
+    });
+
+    const snapshot_examples = b.addExecutable(.{
+        .name = "snapshot_examples",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/snapshot_examples.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .imports = &.{
+                .{ .name = "zig_test", .module = lib_module },
+            },
+        }),
+    });
+
+    const progress_examples = b.addExecutable(.{
+        .name = "progress_examples",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/progress_examples.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .imports = &.{
+                .{ .name = "zig_test", .module = lib_module },
+            },
+        }),
+    });
+
+    const timeout_examples = b.addExecutable(.{
+        .name = "timeout_examples",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/timeout_examples.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+            .imports = &.{
+                .{ .name = "zig_test", .module = lib_module },
+            },
+        }),
+    });
+
+    const examples_step = b.step("examples", "Run core examples and compile all examples");
     examples_step.dependOn(&run_basic_example.step);
     examples_step.dependOn(&run_advanced_example.step);
+    examples_step.dependOn(&async_examples.step);
+    examples_step.dependOn(&snapshot_examples.step);
+    examples_step.dependOn(&progress_examples.step);
+    examples_step.dependOn(&timeout_examples.step);
 }

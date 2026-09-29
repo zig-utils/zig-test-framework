@@ -208,13 +208,21 @@ pub fn main() !void {
         }
     }.testSuite);
 
-    // Test 5: Hook error handling
-    try ztf.describe(allocator, "Hook error handling", struct {
+    // Test 5: Hook error recovery
+    try ztf.describe(allocator, "Hook error recovery", struct {
+        var hook_failure_observed: bool = false;
         var test_ran: bool = false;
 
         fn testSuite(alloc: std.mem.Allocator) !void {
-            try ztf.beforeEach(alloc, failingBefore);
-            try ztf.it(alloc, "this test should be skipped due to beforeEach failure", testThatShouldntRun);
+            try ztf.beforeEach(alloc, recoverFromFailure);
+            try ztf.it(alloc, "a wrapper hook can recover from an expected failure", testAfterRecovery);
+        }
+
+        fn recoverFromFailure(alloc: std.mem.Allocator) !void {
+            failingBefore(alloc) catch |err| {
+                if (err != error.BeforeEachFailed) return err;
+                hook_failure_observed = true;
+            };
         }
 
         fn failingBefore(alloc: std.mem.Allocator) !void {
@@ -222,9 +230,10 @@ pub fn main() !void {
             return error.BeforeEachFailed;
         }
 
-        fn testThatShouldntRun(alloc: std.mem.Allocator) !void {
-            _ = alloc;
+        fn testAfterRecovery(alloc: std.mem.Allocator) !void {
             test_ran = true;
+            try ztf.expect(alloc, hook_failure_observed).toBe(true);
+            try ztf.expect(alloc, test_ran).toBe(true);
         }
     }.testSuite);
 
