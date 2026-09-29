@@ -130,6 +130,9 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .imports = &.{
+                .{ .name = "zig_test_framework", .module = lib_module },
+            },
         }),
     });
     const run_filter_tests = b.addRunArtifact(filter_tests);
