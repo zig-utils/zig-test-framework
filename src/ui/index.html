@@ -84,6 +84,7 @@
 
         .stat.total .stat-value { color: #58a6ff; }
         .stat.passed .stat-value { color: #3fb950; }
+        .stat.flaky .stat-value { color: #dbab09; }
         .stat.failed .stat-value { color: #f85149; }
         .stat.skipped .stat-value { color: #d29922; }
 
@@ -148,6 +149,11 @@
             background: #1c2128;
         }
 
+        .test.flaky {
+            border-left-color: #dbab09;
+            background: #1c2128;
+        }
+
         .test.skipped {
             border-left-color: #d29922;
             opacity: 0.6;
@@ -178,6 +184,11 @@
 
         .test-status.failed {
             background: #da3633;
+            color: #fff;
+        }
+
+        .test-status.flaky {
+            background: #9e6a03;
             color: #fff;
         }
 
@@ -263,6 +274,10 @@
                 <div class="stat-value" id="passed-tests">0</div>
                 <div class="stat-label">Passed</div>
             </div>
+            <div class="flaky stat">
+                <div class="stat-value" id="flaky-tests">0</div>
+                <div class="stat-label">Flaky</div>
+            </div>
             <div class="failed stat">
                 <div class="stat-value" id="failed-tests">0</div>
                 <div class="stat-label">Failed</div>
@@ -290,6 +305,7 @@
         const state = {
             total: 0,
             passed: 0,
+            flaky: 0,
             failed: 0,
             skipped: 0,
             suites: new Map(),
@@ -300,6 +316,7 @@
             connectionStatus: document.getElementById('connection-status'),
             totalTests: document.getElementById('total-tests'),
             passedTests: document.getElementById('passed-tests'),
+            flakyTests: document.getElementById('flaky-tests'),
             failedTests: document.getElementById('failed-tests'),
             skippedTests: document.getElementById('skipped-tests'),
             progress: document.getElementById('progress'),
@@ -316,9 +333,9 @@
 
             eventSource.addEventListener('run_start', (e) => {
                 const data = JSON.parse(e.data);
+                clearTests();
                 state.total = data.total;
                 updateStats();
-                clearTests();
             });
 
             eventSource.addEventListener('suite_start', (e) => {
@@ -337,6 +354,7 @@
                 updateTest(state.currentSuite, data.name, data.status, data.execution_time_ns, data.error_message);
 
                 if (data.status === 'passed') state.passed++;
+                else if (data.status === 'flaky') state.flaky++;
                 else if (data.status === 'failed') state.failed++;
                 else if (data.status === 'skipped') state.skipped++;
 
@@ -347,6 +365,7 @@
                 const data = JSON.parse(e.data);
                 state.total = data.total;
                 state.passed = data.passed;
+                state.flaky = data.flaky;
                 state.failed = data.failed;
                 state.skipped = data.skipped;
                 updateStats();
@@ -364,10 +383,11 @@
         function updateStats() {
             elements.totalTests.textContent = state.total;
             elements.passedTests.textContent = state.passed;
+            elements.flakyTests.textContent = state.flaky;
             elements.failedTests.textContent = state.failed;
             elements.skippedTests.textContent = state.skipped;
 
-            const completed = state.passed + state.failed + state.skipped;
+            const completed = state.passed + state.flaky + state.failed + state.skipped;
             const progress = state.total > 0 ? (completed / state.total) * 100 : 0;
             elements.progress.style.width = `${progress}%`;
         }
@@ -375,6 +395,7 @@
         function clearTests() {
             state.suites.clear();
             state.passed = 0;
+            state.flaky = 0;
             state.failed = 0;
             state.skipped = 0;
             elements.tests.innerHTML = '';

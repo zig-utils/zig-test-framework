@@ -41,6 +41,12 @@ pub const LoaderOptions = struct {
     ui_server: ?*ui_server.UIServer = null,
 };
 
+fn broadcastJson(server: *ui_server.UIServer, allocator: std.mem.Allocator, event: []const u8, value: anytype) !void {
+    const json = try std.json.Stringify.valueAlloc(allocator, value, .{});
+    defer allocator.free(json);
+    try server.broadcast(event, json);
+}
+
 /// Run all discovered test files
 pub fn runDiscoveredTests(
     allocator: std.mem.Allocator,
@@ -101,9 +107,7 @@ pub fn runDiscoveredTests(
 
     // Notify UI of run start
     if (options.ui_server) |server| {
-        var buffer: [256]u8 = undefined;
-        const json = try std.fmt.bufPrint(&buffer, "{{\"total\":{d}}}", .{selected_files});
-        try server.broadcast("run_start", json);
+        try broadcastJson(server, allocator, "run_start", .{ .total = selected_files });
     }
 
     var files_run: usize = 0;
@@ -125,10 +129,8 @@ pub fn runDiscoveredTests(
 
         // Notify UI of test file start
         if (options.ui_server) |server| {
-            var buffer: [512]u8 = undefined;
-            const json = try std.fmt.bufPrint(&buffer, "{{\"name\":\"{s}\"}}", .{file.name});
-            try server.broadcast("suite_start", json);
-            try server.broadcast("test_start", json);
+            try broadcastJson(server, allocator, "suite_start", .{ .name = file.name });
+            try broadcastJson(server, allocator, "test_start", .{ .name = file.name });
         }
 
         files_run += 1;
@@ -180,15 +182,14 @@ pub fn runDiscoveredTests(
 
         // Notify UI of test file end
         if (options.ui_server) |server| {
-            var buffer: [512]u8 = undefined;
-            const json = try std.fmt.bufPrint(&buffer, "{{\"name\":\"{s}\",\"status\":\"{s}\",\"execution_time_ns\":{d},\"attempts\":{d},\"error_message\":\"\"}}", .{
-                file.name,
-                @tagName(test_case.status),
-                test_case.execution_time_ns,
-                test_case.attempts.items.len,
+            try broadcastJson(server, allocator, "test_end", .{
+                .name = file.name,
+                .status = @tagName(test_case.status),
+                .execution_time_ns = test_case.execution_time_ns,
+                .attempts = test_case.attempts.items.len,
+                .error_message = "",
             });
-            try server.broadcast("test_end", json);
-            try server.broadcast("suite_end", try std.fmt.bufPrint(&buffer, "{{\"name\":\"{s}\"}}", .{file.name}));
+            try broadcastJson(server, allocator, "suite_end", .{ .name = file.name });
         }
 
         if (test_case.status == .passed) {
@@ -218,9 +219,13 @@ pub fn runDiscoveredTests(
 
     // Notify UI of run end
     if (options.ui_server) |server| {
-        var buffer: [512]u8 = undefined;
-        const json = try std.fmt.bufPrint(&buffer, "{{\"total\":{d},\"passed\":{d},\"failed\":{d},\"skipped\":{d}}}", .{ results.total, results.passed, results.failed, results.skipped });
-        try server.broadcast("run_end", json);
+        try broadcastJson(server, allocator, "run_end", .{
+            .total = results.total,
+            .passed = results.passed,
+            .flaky = results.flaky,
+            .failed = results.failed,
+            .skipped = results.skipped,
+        });
     }
 
     if (options.shard) |shard| {
