@@ -276,6 +276,16 @@ pub fn build(b: *std.Build) void {
     run_invalid_config.expectExitCode(2);
     test_step.dependOn(&run_invalid_config.step);
 
+    // Exercise both sides of a file-level shard split. One shard runs the
+    // fixture and the other is intentionally empty; both are valid CI jobs.
+    const run_shard_one = b.addRunArtifact(exe);
+    run_shard_one.addArgs(&.{ "--test-dir", "tests", "--pattern", "sample.test.zig", "--shard-index", "1", "--shard-count", "2", "--no-color" });
+    test_step.dependOn(&run_shard_one.step);
+
+    const run_shard_two = b.addRunArtifact(exe);
+    run_shard_two.addArgs(&.{ "--test-dir", "tests", "--pattern", "sample.test.zig", "--shard-index", "2", "--shard-count", "2", "--no-color" });
+    test_step.dependOn(&run_shard_two.step);
+
     const run_version = b.addRunArtifact(exe);
     run_version.addArg("--version");
     run_version.expectStdErrEqual(b.fmt("Zig Test Framework v{s}\n", .{package_version}));

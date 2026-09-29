@@ -24,12 +24,33 @@ test "CLI rejects missing and invalid values" {
     try std.testing.expectError(ztf.cli.CLIError.InvalidArgument, invalid.parse(&.{ "zig-test", "--jobs", "0" }));
 }
 
+test "CLI parses and validates one-based sharding" {
+    var cli = ztf.CLI.init(std.testing.allocator);
+    try cli.parse(&.{ "zig-test", "--shard-index", "2", "--shard-count", "4" });
+    try std.testing.expectEqual(@as(?usize, 2), cli.options.shard_index);
+    try std.testing.expectEqual(@as(?usize, 4), cli.options.shard_count);
+
+    var missing_count = ztf.CLI.init(std.testing.allocator);
+    try std.testing.expectError(
+        ztf.cli.CLIError.InvalidArgument,
+        missing_count.parse(&.{ "zig-test", "--shard-index", "1" }),
+    );
+
+    var out_of_range = ztf.CLI.init(std.testing.allocator);
+    try std.testing.expectError(
+        ztf.cli.CLIError.InvalidArgument,
+        out_of_range.parse(&.{ "zig-test", "--shard-index", "3", "--shard-count", "2" }),
+    );
+}
+
 test "CLI flags override configuration defaults" {
     var cli = ztf.CLI.init(std.testing.allocator);
     var config = ztf.TestConfig{};
     config.test_options.test_dir = "configured-tests";
     config.test_options.filter = "configured-filter";
     config.test_options.recursive = false;
+    config.sharding.index = 1;
+    config.sharding.count = 3;
     config.reporter.verbose = true;
 
     try cli.applyConfig(config);
@@ -39,4 +60,6 @@ test "CLI flags override configuration defaults" {
     try std.testing.expectEqualStrings("cli-filter", cli.options.filter.?);
     try std.testing.expect(cli.options.no_recursive);
     try std.testing.expect(cli.options.verbose);
+    try std.testing.expectEqual(@as(?usize, 1), cli.options.shard_index);
+    try std.testing.expectEqual(@as(?usize, 3), cli.options.shard_count);
 }

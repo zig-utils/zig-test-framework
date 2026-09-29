@@ -16,6 +16,8 @@ pub const CLIOptions = struct {
     test_dir: ?[]const u8 = ".",
     pattern: []const u8 = "*.test.zig",
     no_recursive: bool = false,
+    shard_index: ?usize = null,
+    shard_count: ?usize = null,
     // Coverage options
     coverage: bool = false,
     coverage_dir: []const u8 = "coverage",
@@ -73,6 +75,8 @@ pub const CLI = struct {
         self.options.no_recursive = !config.test_options.recursive;
         self.options.filter = config.test_options.filter;
         self.options.timeout = config.test_options.timeout;
+        self.options.shard_index = config.sharding.index;
+        self.options.shard_count = config.sharding.count;
         self.options.parallel = config.parallel.enabled;
         self.options.jobs = config.parallel.jobs;
         self.options.reporter = try reporterFromName(config.reporter.reporter);
@@ -144,6 +148,26 @@ pub const CLI = struct {
                 self.options.pattern = args[i];
             } else if (std.mem.eql(u8, arg, "--no-recursive")) {
                 self.options.no_recursive = true;
+            } else if (std.mem.eql(u8, arg, "--shard-index")) {
+                if (i + 1 >= args.len) {
+                    std.debug.print("Error: --shard-index requires a value\n", .{});
+                    return CLIError.MissingValue;
+                }
+                i += 1;
+                self.options.shard_index = std.fmt.parseInt(usize, args[i], 10) catch {
+                    std.debug.print("Error: --shard-index must be a valid number\n", .{});
+                    return CLIError.InvalidArgument;
+                };
+            } else if (std.mem.eql(u8, arg, "--shard-count")) {
+                if (i + 1 >= args.len) {
+                    std.debug.print("Error: --shard-count requires a value\n", .{});
+                    return CLIError.MissingValue;
+                }
+                i += 1;
+                self.options.shard_count = std.fmt.parseInt(usize, args[i], 10) catch {
+                    std.debug.print("Error: --shard-count must be a valid number\n", .{});
+                    return CLIError.InvalidArgument;
+                };
             } else if (std.mem.eql(u8, arg, "--coverage")) {
                 self.options.coverage = true;
             } else if (std.mem.eql(u8, arg, "--coverage-dir")) {
@@ -273,6 +297,24 @@ pub const CLI = struct {
                 self.options.test_dir = arg;
             }
         }
+
+        const has_shard_index = self.options.shard_index != null;
+        const has_shard_count = self.options.shard_count != null;
+        if (has_shard_index != has_shard_count) {
+            std.debug.print("Error: --shard-index and --shard-count must be provided together\n", .{});
+            return CLIError.InvalidArgument;
+        }
+        if (self.options.shard_count) |count| {
+            const index = self.options.shard_index.?;
+            if (count == 0) {
+                std.debug.print("Error: --shard-count must be greater than zero\n", .{});
+                return CLIError.InvalidArgument;
+            }
+            if (index == 0 or index > count) {
+                std.debug.print("Error: --shard-index must be between 1 and --shard-count\n", .{});
+                return CLIError.InvalidArgument;
+            }
+        }
     }
 
     /// Return the first option that discovery mode cannot currently honor.
@@ -325,6 +367,8 @@ pub const CLI = struct {
             \\    --test-dir <dir>        Directory to search for tests (default: .)
             \\    --pattern <pattern>     Test file pattern (default: *.test.zig)
             \\    --no-recursive          Disable recursive directory search
+            \\    --shard-index <N>       One-based shard to run
+            \\    --shard-count <N>       Total number of shards
             \\
             \\COVERAGE:
             \\    --coverage              Enable code coverage collection
@@ -456,6 +500,27 @@ test "CLI parse coverage flag" {
     const args = [_][]const u8{ "zig-test", "--coverage" };
     try cli.parse(&args);
     try std.testing.expect(cli.options.coverage);
+}
+
+test "CLI parse shard options" {
+    var cli = CLI.init(std.testing.allocator);
+    try cli.parse(&.{ "zig-test", "--shard-count", "5", "--shard-index", "3" });
+    try std.testing.expectEqual(@as(?usize, 3), cli.options.shard_index);
+    try std.testing.expectEqual(@as(?usize, 5), cli.options.shard_count);
+}
+
+test "CLI rejects incomplete and out-of-range shards" {
+    var incomplete = CLI.init(std.testing.allocator);
+    try std.testing.expectError(
+        CLIError.InvalidArgument,
+        incomplete.parse(&.{ "zig-test", "--shard-count", "2" }),
+    );
+
+    var out_of_range = CLI.init(std.testing.allocator);
+    try std.testing.expectError(
+        CLIError.InvalidArgument,
+        out_of_range.parse(&.{ "zig-test", "--shard-index", "0", "--shard-count", "2" }),
+    );
 }
 
 test "CLI parse coverage-dir" {

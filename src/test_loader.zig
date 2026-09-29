@@ -1,5 +1,6 @@
 const std = @import("std");
 const discovery = @import("discovery.zig");
+const sharding = @import("sharding.zig");
 const coverage = @import("coverage.zig");
 const ui_server = @import("ui_server.zig");
 const compat = @import("compat.zig");
@@ -14,6 +15,8 @@ pub const LoaderOptions = struct {
     verbose: bool = false,
     /// Whether child Zig test processes may emit colors
     use_colors: bool = true,
+    /// Optional one-based file shard to execute
+    shard: ?sharding.ShardOptions = null,
     /// Coverage options
     coverage_options: ?coverage.CoverageOptions = null,
     /// UI server for real-time updates
@@ -31,8 +34,17 @@ pub fn runDiscoveredTests(
         return false;
     }
 
-    std.debug.print("Found {} test file(s):\n", .{discovered.files.items.len});
+    const selected_files = try selectedFileCount(discovered, options.shard);
+    if (options.shard) |shard| {
+        std.debug.print(
+            "Shard {}/{}: selected {} of {} test file(s).\n",
+            .{ shard.index, shard.count, selected_files, discovered.files.items.len },
+        );
+    }
+
+    std.debug.print("Found {} test file(s):\n", .{selected_files});
     for (discovered.files.items) |file| {
+        if (!try fileSelected(file.relative_path, options.shard)) continue;
         std.debug.print("  - {s}\n", .{file.relative_path});
     }
     std.debug.print("\n", .{});
@@ -40,7 +52,7 @@ pub fn runDiscoveredTests(
     // Notify UI of run start
     if (options.ui_server) |server| {
         var buffer: [256]u8 = undefined;
-        const json = try std.fmt.bufPrint(&buffer, "{{\"total\":{d}}}", .{discovered.files.items.len});
+        const json = try std.fmt.bufPrint(&buffer, "{{\"total\":{d}}}", .{selected_files});
         try server.broadcast("run_start", json);
     }
 
@@ -57,6 +69,8 @@ pub fn runDiscoveredTests(
     }
 
     for (discovered.files.items) |file| {
+        if (!try fileSelected(file.relative_path, options.shard)) continue;
+
         // Run each test file using zig test command
         std.debug.print("Running {s}...\n", .{file.relative_path});
 
@@ -102,7 +116,7 @@ pub fn runDiscoveredTests(
 
     // Print coverage summary if enabled
     if (options.coverage_options) |cov_opts| {
-        if (cov_opts.enabled) {
+        if (cov_opts.enabled and files_run > 0) {
             std.debug.print("\n", .{});
             const cov_result = coverage.parseCoverageReport(allocator, cov_opts.output_dir) catch |err| {
                 std.debug.print("Warning: Could not parse coverage report: {any}\n", .{err});
@@ -122,11 +136,30 @@ pub fn runDiscoveredTests(
 
     std.debug.print("\n", .{});
     std.debug.print("Test Summary:\n", .{});
+    if (options.shard) |shard| {
+        std.debug.print("  Shard: {}/{}\n", .{ shard.index, shard.count });
+        std.debug.print("  Selected: {} of {} files\n", .{ selected_files, discovered.files.items.len });
+    }
     std.debug.print("  Files run: {}\n", .{files_run});
     std.debug.print("  Passed: {}\n", .{total_passed});
     std.debug.print("  Failed: {}\n", .{total_failed});
 
     return total_failed == 0;
+}
+
+fn fileSelected(relative_path: []const u8, shard: ?sharding.ShardOptions) !bool {
+    return if (shard) |selection| selection.includes(relative_path) else true;
+}
+
+fn selectedFileCount(
+    discovered: *const discovery.DiscoveryResult,
+    shard: ?sharding.ShardOptions,
+) !usize {
+    var count: usize = 0;
+    for (discovered.files.items) |file| {
+        if (try fileSelected(file.relative_path, shard)) count += 1;
+    }
+    return count;
 }
 
 /// Run a single test file using `zig test`
@@ -207,6 +240,7 @@ test "LoaderOptions default values" {
     try std.testing.expectEqual(@as(?[]const u8, null), options.filter);
     try std.testing.expectEqual(false, options.verbose);
     try std.testing.expectEqual(true, options.use_colors);
+    try std.testing.expectEqual(@as(?sharding.ShardOptions, null), options.shard);
     try std.testing.expectEqual(@as(?coverage.CoverageOptions, null), options.coverage_options);
 }
 
@@ -255,4 +289,25 @@ test "LoaderOptions with coverage disabled" {
     };
 
     try std.testing.expectEqual(@as(?coverage.CoverageOptions, null), options.coverage_options);
+}
+
+test "file sharding partitions discovered files exactly once" {
+    const allocator = std.testing.allocator;
+    var discovered = discovery.DiscoveryResult.init(allocator);
+    defer discovered.deinit();
+
+    try discovered.addFile("tests/api.test.zig", "api.test.zig", "api.test.zig");
+    try discovered.addFile("tests/db.test.zig", "db.test.zig", "db.test.zig");
+    try discovered.addFile("tests/math.test.zig", "math.test.zig", "math.test.zig");
+    try discovered.addFile("tests/string.test.zig", "string.test.zig", "string.test.zig");
+
+    var total_selected: usize = 0;
+    for (1..4) |index| {
+        total_selected += try selectedFileCount(
+            &discovered,
+            .{ .index = index, .count = 3 },
+        );
+    }
+
+    try std.testing.expectEqual(discovered.files.items.len, total_selected);
 }
