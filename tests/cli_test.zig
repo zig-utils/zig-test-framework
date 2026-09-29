@@ -23,3 +23,20 @@ test "CLI rejects missing and invalid values" {
     var invalid = ztf.CLI.init(std.testing.allocator);
     try std.testing.expectError(ztf.cli.CLIError.InvalidArgument, invalid.parse(&.{ "zig-test", "--jobs", "0" }));
 }
+
+test "CLI flags override configuration defaults" {
+    var cli = ztf.CLI.init(std.testing.allocator);
+    var config = ztf.TestConfig{};
+    config.test_options.test_dir = "configured-tests";
+    config.test_options.filter = "configured-filter";
+    config.test_options.recursive = false;
+    config.reporter.verbose = true;
+
+    try cli.applyConfig(config);
+    try cli.parse(&.{ "zig-test", "--test-dir", "cli-tests", "--filter", "cli-filter" });
+
+    try std.testing.expectEqualStrings("cli-tests", cli.options.test_dir.?);
+    try std.testing.expectEqualStrings("cli-filter", cli.options.filter.?);
+    try std.testing.expect(cli.options.no_recursive);
+    try std.testing.expect(cli.options.verbose);
+}

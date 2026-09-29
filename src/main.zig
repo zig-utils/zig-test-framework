@@ -71,6 +71,20 @@ pub fn main(init: std.process.Init.Minimal) !void {
         return;
     }
 
+    // Configuration establishes defaults; parsing the arguments again makes
+    // every explicitly supplied CLI flag take precedence.
+    var config_loader = lib.ConfigLoader.init(allocator);
+    defer config_loader.deinit();
+    if (cli_parser.options.config) |config_path| {
+        const config = config_loader.loadFromFile(config_path) catch |err| {
+            std.debug.print("Error: invalid configuration '{s}': {s}\n", .{ config_path, @errorName(err) });
+            std.process.exit(2);
+        };
+        cli_parser = lib.CLI.init(allocator);
+        try cli_parser.applyConfig(config);
+        try cli_parser.parse(args);
+    }
+
     // Check if we should use test discovery or programmatic tests
     const use_discovery = cli_parser.options.test_dir != null;
 

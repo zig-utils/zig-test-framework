@@ -1,0 +1,8 @@
+{
+  "test": {
+    "test_dir": "tests/fixtures",
+    "pattern": "filter_fixture.zig",
+    "recursive": false,
+    "filter": "selected test passes"
+  }
+}
