@@ -756,7 +756,10 @@ zig build examples
 
 ## Requirements
 
-- Zig 0.15.1 or later
+- The exact Zig development build recorded in [`.zig-version`](.zig-version)
+
+See [TOOLCHAIN.md](TOOLCHAIN.md) for the compatibility policy and upgrade
+process.
 
 ## Documentation
 
