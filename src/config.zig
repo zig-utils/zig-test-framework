@@ -8,6 +8,7 @@ pub const ConfigFormat = enum { json };
 /// actually honor. Defaults intentionally match `CLIOptions`.
 pub const TestConfig = struct {
     test_options: TestOptions = .{},
+    sharding: ShardingOptions = .{},
     parallel: ParallelOptions = .{},
     reporter: ReporterOptions = .{},
     snapshot: SnapshotOptions = .{},
@@ -15,6 +16,11 @@ pub const TestConfig = struct {
     memory: MemoryOptions = .{},
     ui: UIOptions = .{},
     coverage: CoverageOptions = .{},
+};
+
+pub const ShardingOptions = struct {
+    index: ?usize = null,
+    count: ?usize = null,
 };
 
 pub const TestOptions = struct {
@@ -64,6 +70,7 @@ pub const CoverageOptions = struct {
 
 const FileConfig = struct {
     @"test": TestOptions = .{},
+    sharding: ShardingOptions = .{},
     parallel: ParallelOptions = .{},
     reporter: ReporterOptions = .{},
     snapshot: SnapshotOptions = .{},
@@ -80,6 +87,7 @@ pub const ConfigError = error{
     InvalidPort,
     InvalidTimeout,
     InvalidDebounce,
+    InvalidShard,
 };
 
 /// Owns strings parsed from configuration files until `deinit` is called.
@@ -116,6 +124,7 @@ pub const ConfigLoader = struct {
         );
         const config = TestConfig{
             .test_options = file_config.@"test",
+            .sharding = file_config.sharding,
             .parallel = file_config.parallel,
             .reporter = file_config.reporter,
             .snapshot = file_config.snapshot,
@@ -175,6 +184,13 @@ fn validate(config: TestConfig) !void {
         if (timeout == 0) return ConfigError.InvalidTimeout;
     }
     if (config.watch.debounce_ms == 0) return ConfigError.InvalidDebounce;
+    const has_shard_index = config.sharding.index != null;
+    const has_shard_count = config.sharding.count != null;
+    if (has_shard_index != has_shard_count) return ConfigError.InvalidShard;
+    if (config.sharding.count) |count| {
+        const index = config.sharding.index.?;
+        if (count == 0 or index == 0 or index > count) return ConfigError.InvalidShard;
+    }
 }
 
 test "TestConfig defaults match CLI discovery defaults" {
@@ -183,6 +199,8 @@ test "TestConfig defaults match CLI discovery defaults" {
     try std.testing.expectEqualStrings(".", config.test_options.test_dir);
     try std.testing.expect(config.test_options.recursive);
     try std.testing.expect(config.test_options.timeout == null);
+    try std.testing.expect(config.sharding.index == null);
+    try std.testing.expect(config.sharding.count == null);
     try std.testing.expect(!config.parallel.enabled);
     try std.testing.expectEqualStrings("spec", config.reporter.reporter);
 }
@@ -200,6 +218,11 @@ test "configuration validation rejects invalid runtime values" {
     invalid.reporter.reporter = "spec";
     invalid.parallel.jobs = 0;
     try std.testing.expectError(ConfigError.InvalidJobs, validate(invalid));
+    invalid.parallel.jobs = null;
+    invalid.sharding.index = 2;
+    try std.testing.expectError(ConfigError.InvalidShard, validate(invalid));
+    invalid.sharding.count = 1;
+    try std.testing.expectError(ConfigError.InvalidShard, validate(invalid));
 }
 
 test "ConfigLoader loads supported JSON and rejects unknown keys" {
@@ -210,6 +233,8 @@ test "ConfigLoader loads supported JSON and rejects unknown keys" {
     try std.testing.expectEqualStrings("tests/fixtures", config.test_options.test_dir);
     try std.testing.expectEqualStrings("selected test passes", config.test_options.filter.?);
     try std.testing.expect(!config.test_options.recursive);
+    try std.testing.expectEqual(@as(?usize, 1), config.sharding.index);
+    try std.testing.expectEqual(@as(?usize, 1), config.sharding.count);
 
     try std.testing.expectError(
         error.UnknownField,

@@ -161,6 +161,10 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
 
     var all_passed: bool = undefined;
+    const shard_options: ?lib.ShardOptions = if (cli_parser.options.shard_index) |index|
+        .{ .index = index, .count = cli_parser.options.shard_count.? }
+    else
+        null;
 
     // Check if watch mode is enabled
     if (cli_parser.options.watch) {
@@ -201,6 +205,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
             .filter = cli_parser.options.filter,
             .verbose = cli_parser.options.verbose,
             .use_colors = !cli_parser.options.no_color,
+            .shard = shard_options,
             .coverage_options = cov_opts,
             .ui_server = if (ui_server) |*server| server else null,
         };
@@ -239,6 +244,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
             .filter = cli_parser.options.filter,
             .verbose = cli_parser.options.verbose,
             .use_colors = !cli_parser.options.no_color,
+            .shard = shard_options,
             .coverage_options = cov_opts,
             .ui_server = if (ui_server) |*server| server else null,
         };

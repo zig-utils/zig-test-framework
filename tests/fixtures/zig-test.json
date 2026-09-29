@@ -4,5 +4,9 @@
     "pattern": "filter_fixture.zig",
     "recursive": false,
     "filter": "selected test passes"
+  },
+  "sharding": {
+    "index": 1,
+    "count": 1
   }
 }

@@ -9,6 +9,7 @@ pub const matchers = @import("matchers.zig");
 pub const mock = @import("mock.zig");
 pub const cli = @import("cli.zig");
 pub const discovery = @import("discovery.zig");
+pub const sharding = @import("sharding.zig");
 pub const test_loader = @import("test_loader.zig");
 pub const coverage = @import("coverage.zig");
 pub const parallel = @import("parallel.zig");
@@ -105,6 +106,11 @@ pub const DiscoveryOptions = discovery.DiscoveryOptions;
 pub const DiscoveryResult = discovery.DiscoveryResult;
 pub const TestFile = discovery.TestFile;
 pub const discoverTests = discovery.discoverTests;
+
+// Test Sharding
+pub const ShardOptions = sharding.ShardOptions;
+pub const ShardError = sharding.ShardError;
+pub const shardIndex = sharding.shardIndex;
 
 // Test Loader
 pub const LoaderOptions = test_loader.LoaderOptions;
