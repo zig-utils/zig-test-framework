@@ -242,6 +242,22 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_snapshot_usage_tests.step);
     test_step.dependOn(&run_time_tests.step);
 
+    // Exercise configuration through the real CLI. The second invocation
+    // proves that an explicit CLI filter overrides the configured filter.
+    const run_config_fixture = b.addRunArtifact(exe);
+    run_config_fixture.addArgs(&.{ "--config", "tests/fixtures/zig-test.json" });
+    test_step.dependOn(&run_config_fixture.step);
+
+    const run_config_override = b.addRunArtifact(exe);
+    run_config_override.addArgs(&.{ "--config", "tests/fixtures/zig-test.json", "--filter", "unselected test fails" });
+    run_config_override.expectExitCode(1);
+    test_step.dependOn(&run_config_override.step);
+
+    const run_invalid_config = b.addRunArtifact(exe);
+    run_invalid_config.addArgs(&.{ "--config", "tests/fixtures/invalid-zig-test.json" });
+    run_invalid_config.expectExitCode(2);
+    test_step.dependOn(&run_invalid_config.step);
+
     // Examples
     const basic_example = b.addExecutable(.{
         .name = "basic_example",

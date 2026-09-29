@@ -24,7 +24,7 @@ A modern, feature-rich testing framework for Zig inspired by Jest, Vitest, and B
 - **Watch Mode** - Automatically re-run tests on file changes
 - **Memory Profiling** - Track memory usage and detect leaks
 - **Parallel Execution** - Run tests in parallel for faster execution
-- **Configuration Files** - YAML/JSON/TOML config file support
+- **Configuration Files** - Strict JSON config files with CLI overrides
 
 ## Installation
 
@@ -100,8 +100,8 @@ This will automatically discover and run all `*.test.zig` files in the `tests` d
 
 Discovery mode rejects options that it cannot honor yet instead of silently
 ignoring them. Reporter selection, quiet output, timeouts, parallel jobs,
-snapshot updates, memory profiling, configuration files, JUnit output, and the
-web UI require the shared execution pipeline planned for future releases.
+snapshot updates, memory profiling, JUnit output, and the web UI require the
+shared execution pipeline planned for future releases.
 
 **Examples:**
 
@@ -118,6 +118,33 @@ zig-test --test-dir tests --no-recursive
 # Stop on first failure
 zig-test --test-dir tests --bail
 ```
+
+### Configuration files
+
+`--config <file>` loads a strict JSON configuration before test discovery.
+Unknown keys, duplicate keys, wrong value types, unsupported extensions, and
+invalid runtime values fail with a configuration error. TOML and YAML are not
+currently supported. Explicit CLI options are parsed after the file and take
+precedence over configured values.
+
+```json
+{
+  "test": {
+    "test_dir": "tests",
+    "pattern": "*.test.zig",
+    "recursive": true,
+    "filter": "database"
+  },
+  "coverage": {
+    "enabled": false,
+    "output_dir": "coverage"
+  }
+}
+```
+
+The accepted top-level sections are `test`, `parallel`, `reporter`, `snapshot`,
+`watch`, `memory`, `ui`, and `coverage`. Options retain the same execution-mode
+limitations as their CLI equivalents; unsupported combinations fail explicitly.
 
 ### Programmatic Mode
 
@@ -824,7 +851,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 - [x] Watch mode for file changes
 - [x] TAP/JUnit reporters
 - [x] Memory profiling
-- [x] Configuration files (YAML/JSON/TOML)
+- [x] Strict JSON configuration files
 - [x] Parallel test execution
 - [ ] Parameterized tests (it.each)
 - [ ] Property-based testing

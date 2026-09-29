@@ -258,12 +258,10 @@ This document provides a comprehensive overview of all implemented features in t
 - **Status:** Production Ready
 - **Module:** `src/config.zig`
 - **Features:**
-  - YAML configuration support
-  - JSON configuration support
-  - TOML configuration support
-  - Configuration validation
+  - Strict JSON configuration support
+  - Unknown-key, type, and runtime-value validation
+  - CLI-over-config precedence
   - Default configuration
-  - Environment-specific configs
 
 ### 16. Test History ✅
 
