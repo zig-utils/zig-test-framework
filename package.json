@@ -1,6 +1,5 @@
 {
   "name": "zig-test-framework",
-  "version": "0.2.0",
   "scripts": {
     "release": "pantry release patch --yes",
     "release:minor": "pantry release minor --yes",

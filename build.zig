@@ -1,8 +1,23 @@
 const std = @import("std");
+const manifest_source = @embedFile("build.zig.zon");
+const package_version = manifestVersion(manifest_source);
+
+fn manifestVersion(source: []const u8) []const u8 {
+    const marker = ".version = \"";
+    const marker_start = std.mem.indexOf(u8, source, marker) orelse
+        @compileError("build.zig.zon must declare .version");
+    const start = marker_start + marker.len;
+    const end_offset = std.mem.indexOfScalar(u8, source[start..], '"') orelse
+        @compileError("build.zig.zon contains an unterminated .version");
+    return source[start .. start + end_offset];
+}
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    const build_options = b.addOptions();
+    build_options.addOption([]const u8, "version", package_version);
 
     // Create the main library module
     const lib_module = b.addModule("zig_test_framework", .{
@@ -10,10 +25,13 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .link_libc = true,
     });
+    lib_module.addOptions("build_options", build_options);
 
     // Create the test runner executable
     const exe = b.addExecutable(.{
         .name = "zig-test",
+        .version = std.SemanticVersion.parse(package_version) catch
+            @panic("build.zig.zon contains an invalid semantic version"),
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
@@ -257,6 +275,11 @@ pub fn build(b: *std.Build) void {
     run_invalid_config.addArgs(&.{ "--config", "tests/fixtures/invalid-zig-test.json" });
     run_invalid_config.expectExitCode(2);
     test_step.dependOn(&run_invalid_config.step);
+
+    const run_version = b.addRunArtifact(exe);
+    run_version.addArg("--version");
+    run_version.expectStdErrEqual(b.fmt("Zig Test Framework v{s}\n", .{package_version}));
+    test_step.dependOn(&run_version.step);
 
     // Examples
     const basic_example = b.addExecutable(.{

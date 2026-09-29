@@ -1,4 +1,5 @@
 const std = @import("std");
+const build_options = @import("build_options");
 const config_mod = @import("config.zig");
 const test_runner = @import("test_runner.zig");
 
@@ -43,6 +44,8 @@ pub const CLIOptions = struct {
     // Timeout options
     timeout: ?u64 = null, // Global timeout in milliseconds
 };
+
+pub const version = build_options.version;
 
 pub const CLIError = error{
     InvalidArgument,
@@ -383,8 +386,7 @@ pub const CLI = struct {
     /// Print version information
     pub fn printVersion(self: Self) void {
         _ = self;
-        std.debug.print("Zig Test Framework v2.5.0\n", .{});
-        std.debug.print("Features: Parallel, Coverage, UI, Snapshots, Watch, Memory Profiling, TAP/JUnit, Progress Indicators, Timeout\n", .{});
+        std.debug.print("Zig Test Framework v{s}\n", .{version});
     }
 
     /// Convert CLI options to RunnerOptions
@@ -421,6 +423,10 @@ test "CLI parse version" {
     const args = [_][]const u8{ "zig-test", "-v" };
     try cli.parse(&args);
     try std.testing.expect(cli.options.version);
+}
+
+test "CLI build version is valid semantic version metadata" {
+    _ = try std.SemanticVersion.parse(version);
 }
 
 test "CLI parse bail" {
