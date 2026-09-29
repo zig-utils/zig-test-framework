@@ -28,9 +28,17 @@ jobs:
         run: echo "version=$(cat .zig-version)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Zig
+        if: runner.os != 'Windows'
         uses: pantry-pm/pantry/packages/action@main
         with:
           packages: zig@${{ steps.zig-version.outputs.version }}
+
+      - name: Setup Zig on Windows
+        if: runner.os == 'Windows'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ steps.zig-version.outputs.version }}
+          mirror: https://zig.mirror.mschae23.de/zig
 
       - name: Verify Zig installation
         run: zig version
