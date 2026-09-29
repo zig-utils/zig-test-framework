@@ -286,6 +286,13 @@ pub fn build(b: *std.Build) void {
     run_shard_two.addArgs(&.{ "--test-dir", "tests", "--pattern", "sample.test.zig", "--shard-index", "2", "--shard-count", "2", "--no-color" });
     test_step.dependOn(&run_shard_two.step);
 
+    const run_discovery_tap = b.addRunArtifact(exe);
+    run_discovery_tap.addArgs(&.{ "--test-dir", "tests", "--pattern", "sample.test.zig", "--reporter", "tap", "--no-color" });
+    run_discovery_tap.expectStdOutEqual(
+        "TAP version 14\n1..1\n# Subtest: sample.test.zig\nok 1 - sample.test.zig\n",
+    );
+    test_step.dependOn(&run_discovery_tap.step);
+
     const run_version = b.addRunArtifact(exe);
     run_version.addArg("--version");
     run_version.expectStdErrEqual(b.fmt("Zig Test Framework v{s}\n", .{package_version}));

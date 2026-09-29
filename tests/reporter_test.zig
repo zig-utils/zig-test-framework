@@ -69,3 +69,19 @@ test "reporter json output" {
     try std.testing.expect(std.mem.indexOf(u8, output, "\"name\":\"passes\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "\"passed\":1") != null);
 }
+
+test "reporter set selects the same built-ins for every executor" {
+    var buffer: [1024]u8 = undefined;
+    const writer: std.Io.Writer = .fixed(&buffer);
+    var reporters = ztf.ReporterSet.init(
+        std.testing.allocator,
+        writer,
+        .tap,
+        "test-results.xml",
+        false,
+    );
+    defer reporters.deinit();
+
+    try std.testing.expect(reporters.selected() == &reporters.tap.reporter);
+    try std.testing.expect(!reporters.selected().use_colors);
+}

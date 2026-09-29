@@ -326,7 +326,6 @@ pub const CLI = struct {
         if (!self.options.watch and self.options.watch_debounce != 300) return "--watch-debounce";
         if (!self.options.ui and self.options.ui_port != 8080) return "--ui-port";
         if (!self.options.ui and !std.mem.eql(u8, self.options.ui_host, "127.0.0.1")) return "--ui-host";
-        if (self.options.reporter != .spec) return "--reporter";
         if (self.options.quiet) return "--quiet";
         if (self.options.parallel) return "--parallel";
         if (self.options.jobs != null) return "--jobs";
@@ -335,8 +334,6 @@ pub const CLI = struct {
         if (self.options.profile_memory) return "--profile-memory";
         if (self.options.memory_threshold != 0) return "--memory-threshold";
         if (self.options.fail_on_leak) return "--fail-on-leak";
-        if (self.options.junit_output != null) return "--junit-output";
-        if (self.options.timeout != null) return "--timeout";
         if (self.options.ui) return "--ui";
         return null;
     }
@@ -442,6 +439,8 @@ pub const CLI = struct {
             .use_colors = !self.options.no_color,
             .parallel = self.options.parallel,
             .n_jobs = self.options.jobs,
+            .junit_output = self.options.junit_output orelse "test-results.xml",
+            .timeout_ms = self.options.timeout,
         };
     }
 };
@@ -691,18 +690,18 @@ test "discovery accepts implemented options" {
     try std.testing.expectEqual(@as(?[]const u8, null), cli.unsupportedDiscoveryOption());
 }
 
-test "discovery identifies unsupported options" {
+test "discovery accepts reporter selection" {
     var cli = CLI.init(std.testing.allocator);
     const args = [_][]const u8{ "zig-test", "--test-dir", "tests", "--reporter", "json" };
     try cli.parse(&args);
-    try std.testing.expectEqualStrings("--reporter", cli.unsupportedDiscoveryOption().?);
+    try std.testing.expectEqual(@as(?[]const u8, null), cli.unsupportedDiscoveryOption());
 }
 
-test "discovery reports timeout and parallel options as unsupported" {
+test "discovery accepts timeout and reports parallel as unsupported" {
     var cli = CLI.init(std.testing.allocator);
 
     cli.options.timeout = 1000;
-    try std.testing.expectEqualStrings("--timeout", cli.unsupportedDiscoveryOption().?);
+    try std.testing.expectEqual(@as(?[]const u8, null), cli.unsupportedDiscoveryOption());
 
     cli.options.timeout = null;
     cli.options.parallel = true;
