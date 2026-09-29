@@ -857,6 +857,12 @@ generated files, interactive output, or failure handling.
 ## Requirements
 
 - The exact Zig development build recorded in [`.zig-version`](.zig-version)
+- Linux, macOS, or Windows. All three platforms are required CI targets.
+
+On Windows, discovery accepts native `\\` paths as well as `/` paths and
+launches `zig test` through Zig's portable process API. Ctrl-C and console-close
+events use Windows' native termination behavior; POSIX hosts install cooperative
+SIGINT/SIGTERM handlers for long-running watch and UI modes.
 
 See [TOOLCHAIN.md](TOOLCHAIN.md) for the compatibility policy and upgrade
 process.
