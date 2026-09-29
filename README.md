@@ -95,15 +95,20 @@ This will automatically discover and run all `*.test.zig` files in the `tests` d
 - `--no-recursive` - Disable recursive directory search
 - `--bail` - Stop on first failure
 - `--filter <text>` / `--grep <text>` - Run only Zig tests whose names contain the text
+- `--reporter <name>` - Use spec, dot, JSON, TAP, or JUnit output
+- `--junit-output <file>` - Set the JUnit XML path
+- `--timeout <ms>` - Mark files that exceed the global time budget as failed
 - `--shard-index <N>` - Run one one-based file shard
 - `--shard-count <N>` - Set the total number of file shards
 - `--no-color` - Disable color in child Zig test processes
 - `--verbose` - Show detailed output
 
-Discovery mode rejects options that it cannot honor yet instead of silently
-ignoring them. Reporter selection, quiet output, timeouts, parallel jobs,
-snapshot updates, memory profiling, JUnit output, and the web UI require the
-shared execution pipeline planned for future releases.
+Discovery and programmatic execution share the same test-plan, lifecycle,
+result, and reporter model. Discovery still rejects options it cannot honor
+instead of silently ignoring them: quiet output, parallel jobs, snapshot
+updates, memory profiling, and the web UI remain programmatic-only. See
+[the execution pipeline architecture](docs/execution-pipeline.md) for extension
+points, timeout semantics, and migration guidance.
 
 **Examples:**
 
@@ -634,7 +639,9 @@ zig-test --no-color
 | `--version` | `-v` | Show version information |
 | `--bail` | `-b` | Stop on first failure |
 | `--filter <pattern>` | | Run only tests matching pattern |
-| `--reporter <name>` | | Set reporter (spec, dot, json) |
+| `--reporter <name>` | | Set reporter (spec, dot, json, tap, junit) |
+| `--junit-output <file>` | | Set the JUnit XML output path |
+| `--timeout <ms>` | | Set the global test timeout |
 | `--verbose` | | Enable verbose output |
 | `--quiet` | `-q` | Minimal output |
 | `--no-color` | | Disable colored output |
