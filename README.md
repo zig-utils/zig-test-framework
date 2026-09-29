@@ -35,11 +35,11 @@ Add to your `build.zig.zon`:
 ```zig
 .{
     .name = "my-project",
-    .version = "0.1.0",
+    .version = "0.1.0", // Your project's version
     .dependencies = .{
         .@"zig-test-framework" = .{
-            .url = "https://github.com/zig-utils/zig-test-framework/archive/refs/tags/v0.1.0.tar.gz",
-            // Replace with actual hash after publishing
+            .url = "https://github.com/zig-utils/zig-test-framework/archive/refs/tags/vX.Y.Z.tar.gz",
+            // Replace X.Y.Z and the hash with the release you use
         },
     },
 }

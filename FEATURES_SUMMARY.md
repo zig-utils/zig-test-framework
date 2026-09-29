@@ -1,6 +1,6 @@
 # Zig Test Framework - Features Summary
 
-**Framework Version:** 2.3.0
+**Framework Version:** See `build.zig.zon` (the authoritative version source)
 **Last Updated:** 2025-10-26
 **Status:** Production Ready
 
@@ -537,5 +537,5 @@ The framework is ready for production use and provides a comprehensive testing s
 ---
 
 **Last Updated:** 2025-10-26
-**Framework Version:** 2.3.0
+**Framework Version:** See `build.zig.zon` (the authoritative version source)
 **Status:** Production Ready ✅
