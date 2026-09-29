@@ -2,7 +2,10 @@
 
 The Zig Test Framework supports the exact Zig development build recorded in
 `.zig-version`. Required CI jobs use that version so pull requests are tested
-against a reproducible toolchain.
+against a reproducible toolchain on `ubuntu-latest`, `macos-latest`, and
+`windows-latest`. Windows support follows the Windows version represented by
+GitHub's current `windows-latest` hosted runner; the exact Zig build remains the
+version pinned in `.zig-version`.
 
 Because the project follows Zig development builds, CI also runs a scheduled
 compatibility check against the latest `0.17.0-dev` build. That check is
