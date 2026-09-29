@@ -146,6 +146,25 @@ The accepted top-level sections are `test`, `parallel`, `reporter`, `snapshot`,
 `watch`, `memory`, `ui`, and `coverage`. Options retain the same execution-mode
 limitations as their CLI equivalents; unsupported combinations fail explicitly.
 
+### Parallel execution semantics
+
+Programmatic runners can enable bounded execution with `RunnerOptions.parallel`
+and set `n_jobs`. A configured value is the exact maximum number of active test
+workers; omitting it uses the host's logical CPU count, with a one-worker
+fallback when detection is unavailable.
+
+Suites and nested suites are visited in declaration order. `beforeAll` and
+`afterAll` run once on the coordinating thread around that suite and its nested
+suites. Direct tests within a suite may overlap. Their inherited `beforeEach`
+and `afterEach` hooks run on the same worker as the test, so per-test hook order
+is preserved but hooks from different tests may overlap. Hook state and the
+allocator passed to tests must therefore be thread-safe.
+
+Reporter callbacks never run concurrently: test results are emitted in
+declaration order after each parallel batch, making output and final totals
+deterministic. A parallel batch is already scheduled as a unit, so `bail` cannot
+cancel tests that have started.
+
 ### Programmatic Mode
 
 For more control, you can manually register tests:
