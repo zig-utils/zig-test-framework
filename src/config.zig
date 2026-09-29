@@ -244,6 +244,9 @@ test "ConfigLoader loads supported JSON and rejects unknown keys" {
     try std.testing.expectEqualStrings("tests/fixtures", config.test_options.test_dir);
     try std.testing.expectEqualStrings("selected test passes", config.test_options.filter.?);
     try std.testing.expect(!config.test_options.recursive);
+    try std.testing.expectEqual(@as(usize, 1), config.test_options.retries);
+    try std.testing.expectEqual(@as(usize, 2), config.test_options.repeat);
+    try std.testing.expect(!config.test_options.fail_on_flaky);
     try std.testing.expectEqual(@as(?usize, 1), config.sharding.index);
     try std.testing.expectEqual(@as(?usize, 1), config.sharding.count);
 

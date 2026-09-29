@@ -3,7 +3,10 @@
     "test_dir": "tests/fixtures",
     "pattern": "filter_fixture.zig",
     "recursive": false,
-    "filter": "selected test passes"
+    "filter": "selected test passes",
+    "retries": 1,
+    "repeat": 2,
+    "fail_on_flaky": false
   },
   "sharding": {
     "index": 1,

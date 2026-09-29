@@ -8,6 +8,7 @@ A modern, feature-rich testing framework for Zig inspired by Jest, Vitest, and B
 - **Code Coverage** - Line, branch, and function coverage with HTML reports (via kcov/grindcov)
 - **Async Test Support** - Full async test execution with concurrent and sequential modes
 - **Timeout Handling** - Configurable timeouts at test, suite, and global levels with extension support
+- **Retries & Repeats** - Re-run failures, stress-run selected tests, and report flaky outcomes
 - **Familiar API** - Describe/it syntax similar to Jest and Vitest
 - **Rich Assertions** - Comprehensive assertion library with `.expect()` and matchers
 - **Error Assertions** - `toThrow()` and `toThrowError()` for testing error handling
@@ -98,6 +99,9 @@ This will automatically discover and run all `*.test.zig` files in the `tests` d
 - `--reporter <name>` - Use spec, dot, JSON, TAP, or JUnit output
 - `--junit-output <file>` - Set the JUnit XML path
 - `--timeout <ms>` - Mark files that exceed the global time budget as failed
+- `--retry <N>` - Retry a failed test or discovered test file up to N times
+- `--repeat <N>` - Require N successful repetitions of every selected test
+- `--fail-on-flaky` - Return a failing exit status when a retry recovers a failure
 - `--shard-index <N>` - Run one one-based file shard
 - `--shard-count <N>` - Set the total number of file shards
 - `--no-color` - Disable color in child Zig test processes
@@ -124,6 +128,12 @@ zig-test --test-dir tests --no-recursive
 
 # Stop on first failure
 zig-test --test-dir tests --bail
+
+# Retry failures twice and fail CI if any test is flaky
+zig-test --test-dir tests --retry 2 --fail-on-flaky
+
+# Stress-run matching tests 100 times
+zig-test --test-dir tests --filter parser --repeat 100
 
 # Run the second of four deterministic file shards
 zig-test --test-dir tests --shard-index 2 --shard-count 4
@@ -168,7 +178,10 @@ precedence over configured values.
     "test_dir": "tests",
     "pattern": "*.test.zig",
     "recursive": true,
-    "filter": "database"
+    "filter": "database",
+    "retries": 2,
+    "repeat": 10,
+    "fail_on_flaky": true
   },
   "sharding": {
     "index": 1,
@@ -184,6 +197,9 @@ precedence over configured values.
 The accepted top-level sections are `test`, `sharding`, `parallel`, `reporter`,
 `snapshot`, `watch`, `memory`, `ui`, and `coverage`. Options retain the same execution-mode
 limitations as their CLI equivalents; unsupported combinations fail explicitly.
+
+See [Retries, repeats, and flaky tests](docs/retries-and-repeats.md) for attempt
+semantics, exit codes, reporter output, and programmatic configuration.
 
 ### Parallel execution semantics
 
@@ -642,6 +658,9 @@ zig-test --no-color
 | `--reporter <name>` | | Set reporter (spec, dot, json, tap, junit) |
 | `--junit-output <file>` | | Set the JUnit XML output path |
 | `--timeout <ms>` | | Set the global test timeout |
+| `--retry <N>` | `--retries <N>` | Retry each failed test up to N times |
+| `--repeat <N>` | | Require N successful runs of each selected test |
+| `--fail-on-flaky` | | Fail the run when a retry recovers a failure |
 | `--verbose` | | Enable verbose output |
 | `--quiet` | `-q` | Minimal output |
 | `--no-color` | | Disable colored output |
@@ -921,6 +940,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 - [x] Memory profiling
 - [x] Strict JSON configuration files
 - [x] Parallel test execution
+- [x] Retries, repeated runs, and flaky-test reporting
 - [ ] Parameterized tests (it.each)
 - [ ] Property-based testing
 - [ ] IDE integration

@@ -293,6 +293,21 @@ pub fn build(b: *std.Build) void {
     );
     test_step.dependOn(&run_discovery_tap.step);
 
+    const run_discovery_repeat = b.addRunArtifact(exe);
+    run_discovery_repeat.addArgs(&.{
+        "--test-dir",
+        "tests",
+        "--pattern",
+        "sample.test.zig",
+        "--retry",
+        "1",
+        "--repeat",
+        "2",
+        "--fail-on-flaky",
+        "--no-color",
+    });
+    test_step.dependOn(&run_discovery_repeat.step);
+
     const run_version = b.addRunArtifact(exe);
     run_version.addArg("--version");
     run_version.expectStdErrEqual(b.fmt("Zig Test Framework v{s}\n", .{package_version}));
