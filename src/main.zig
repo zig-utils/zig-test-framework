@@ -1,24 +1,30 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const lib = @import("zig_test_framework");
 const compat = lib.compat;
 
 // Global signal handler state
 var shutdown_requested = std.atomic.Value(bool).init(false);
 
-/// Signal handler for SIGINT and SIGTERM
-fn handleSignal(sig: std.posix.SIG) callconv(.c) void {
-    _ = sig;
-    shutdown_requested.store(true, .monotonic);
-    std.debug.print("\n\nShutdown requested... cleaning up\n", .{});
-}
-
 /// Install signal handlers
 fn installSignalHandlers() !void {
+    // Windows console control events retain their native default behavior:
+    // Ctrl-C and console close terminate the CLI. POSIX platforms install
+    // cooperative handlers so long-running watch/UI modes can clean up.
+    if (comptime builtin.os.tag == .windows) return;
+
+    const Handler = struct {
+        fn handle(sig: std.posix.SIG) callconv(.c) void {
+            _ = sig;
+            shutdown_requested.store(true, .monotonic);
+            std.debug.print("\n\nShutdown requested... cleaning up\n", .{});
+        }
+    };
     const posix = std.posix;
 
     // Install SIGINT handler (Ctrl+C)
     const sigint_action = posix.Sigaction{
-        .handler = .{ .handler = handleSignal },
+        .handler = .{ .handler = Handler.handle },
         .mask = posix.sigemptyset(),
         .flags = 0,
     };
@@ -26,7 +32,7 @@ fn installSignalHandlers() !void {
 
     // Install SIGTERM handler
     const sigterm_action = posix.Sigaction{
-        .handler = .{ .handler = handleSignal },
+        .handler = .{ .handler = Handler.handle },
         .mask = posix.sigemptyset(),
         .flags = 0,
     };
@@ -52,7 +58,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
         for (args_list.items) |arg| allocator.free(arg);
         args_list.deinit(allocator);
     }
-    var args_iter = std.process.Args.Iterator.init(init.args);
+    var args_iter = try std.process.Args.Iterator.initAllocator(init.args, allocator);
+    defer args_iter.deinit();
     while (args_iter.next()) |arg| {
         try args_list.append(allocator, try allocator.dupe(u8, arg));
     }
