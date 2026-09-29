@@ -24,8 +24,19 @@ pub const TestStatus = enum {
     pending,
     running,
     passed,
+    flaky,
     failed,
     skipped,
+};
+
+/// The outcome of one execution of a test. A logical test may have several
+/// attempts when retries or repeated runs are enabled.
+pub const TestAttempt = struct {
+    number: usize,
+    repetition: usize,
+    status: TestStatus,
+    duration_ns: u64,
+    error_message: ?[]const u8 = null,
 };
 
 /// Individual test case
@@ -37,6 +48,9 @@ pub const TestCase = struct {
     status: TestStatus = .pending,
     error_message: ?[]const u8 = null,
     execution_time_ns: u64 = 0,
+    /// Override the runner retry count for this test when non-null.
+    retry_count: ?usize = null,
+    attempts: std.ArrayList(TestAttempt) = .empty,
     skip: bool = false,
     only: bool = false,
     file: []const u8 = "",
@@ -64,6 +78,20 @@ pub const TestCase = struct {
             .test_type = .async_test,
             .timeout_ms = timeout_ms,
         };
+    }
+
+    /// Configure an additional-attempt count for this individual test.
+    pub fn withRetries(self: TestCase, retries: usize) TestCase {
+        var configured = self;
+        configured.retry_count = retries;
+        return configured;
+    }
+
+    pub fn deinit(self: *TestCase, allocator: std.mem.Allocator) void {
+        for (self.attempts.items) |attempt| {
+            if (attempt.error_message) |message| allocator.free(message);
+        }
+        self.attempts.deinit(allocator);
     }
 };
 
@@ -103,6 +131,7 @@ pub const TestSuite = struct {
         for (self.suites.items) |suite| {
             suite.deinit();
         }
+        for (self.tests.items) |*test_case| test_case.deinit(self.allocator);
         self.tests.deinit(self.allocator);
         self.suites.deinit(self.allocator);
         self.before_each_hooks.deinit(self.allocator);
@@ -456,12 +485,14 @@ test "TestStatus enum values" {
     const pending_status = TestStatus.pending;
     const running_status = TestStatus.running;
     const passed_status = TestStatus.passed;
+    const flaky_status = TestStatus.flaky;
     const failed_status = TestStatus.failed;
     const skipped_status = TestStatus.skipped;
 
     try std.testing.expect(pending_status == .pending);
     try std.testing.expect(running_status == .running);
     try std.testing.expect(passed_status == .passed);
+    try std.testing.expect(flaky_status == .flaky);
     try std.testing.expect(failed_status == .failed);
     try std.testing.expect(skipped_status == .skipped);
 }

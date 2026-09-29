@@ -60,6 +60,7 @@ pub const describeTimeout = suite.describeTimeout;
 pub const TestSuite = suite.TestSuite;
 pub const TestCase = suite.TestCase;
 pub const TestStatus = suite.TestStatus;
+pub const TestAttempt = suite.TestAttempt;
 pub const TestRegistry = suite.TestRegistry;
 pub const TestFn = suite.TestFn;
 pub const HookFn = suite.HookFn;

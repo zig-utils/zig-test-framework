@@ -71,21 +71,25 @@ pub const Reporter = struct {
 pub const TestResults = struct {
     total: usize = 0,
     passed: usize = 0,
+    flaky: usize = 0,
     failed: usize = 0,
     skipped: usize = 0,
     total_time_ns: u64 = 0,
     failed_tests: std.ArrayList(suite.TestCase),
+    flaky_tests: std.ArrayList(suite.TestCase),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) TestResults {
         return TestResults{
             .failed_tests = .empty,
+            .flaky_tests = .empty,
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *TestResults) void {
         self.failed_tests.deinit(self.allocator);
+        self.flaky_tests.deinit(self.allocator);
     }
 
     pub fn addTest(self: *TestResults, test_case: *const suite.TestCase) !void {
@@ -94,6 +98,10 @@ pub const TestResults = struct {
 
         switch (test_case.status) {
             .passed => self.passed += 1,
+            .flaky => {
+                self.flaky += 1;
+                try self.flaky_tests.append(self.allocator, test_case.*);
+            },
             .failed => {
                 self.failed += 1;
                 try self.failed_tests.append(self.allocator, test_case.*);
@@ -188,6 +196,9 @@ pub const SpecReporter = struct {
             try s.output().print("{s}Test Summary:{s}\n", .{ Colors.bold, Colors.reset });
             try s.output().print("  Total:   {d}\n", .{results.total});
             try s.output().print("  {s}Passed:  {d}{s}\n", .{ Colors.green, results.passed, Colors.reset });
+            if (results.flaky > 0) {
+                try s.output().print("  {s}Flaky:   {d}{s}\n", .{ Colors.yellow, results.flaky, Colors.reset });
+            }
             if (results.failed > 0) {
                 try s.output().print("  {s}Failed:  {d}{s}\n", .{ Colors.red, results.failed, Colors.reset });
             }
@@ -199,6 +210,9 @@ pub const SpecReporter = struct {
             try s.output().print("Test Summary:\n", .{});
             try s.output().print("  Total:   {d}\n", .{results.total});
             try s.output().print("  Passed:  {d}\n", .{results.passed});
+            if (results.flaky > 0) {
+                try s.output().print("  Flaky:   {d}\n", .{results.flaky});
+            }
             if (results.failed > 0) {
                 try s.output().print("  Failed:  {d}\n", .{results.failed});
             }
@@ -263,6 +277,25 @@ pub const SpecReporter = struct {
                     });
                 } else {
                     try s.output().print("✓ {s} ({d:.2}ms)\n", .{ test_case.name, time_ms });
+                }
+            },
+            .flaky => {
+                if (reporter.use_colors) {
+                    try s.output().print("{s}~{s} {s} {s}({d} attempts, {d:.2}ms){s}\n", .{
+                        Colors.yellow,
+                        Colors.reset,
+                        test_case.name,
+                        Colors.gray,
+                        test_case.attempts.items.len,
+                        time_ms,
+                        Colors.reset,
+                    });
+                } else {
+                    try s.output().print("~ {s} (flaky after {d} attempts, {d:.2}ms)\n", .{
+                        test_case.name,
+                        test_case.attempts.items.len,
+                        time_ms,
+                    });
                 }
             },
             .failed => {
@@ -353,11 +386,13 @@ pub const DotReporter = struct {
 
         if (reporter.use_colors) {
             try s.output().print("{s}Passed: {d}{s}, ", .{ Colors.green, results.passed, Colors.reset });
+            try s.output().print("{s}Flaky: {d}{s}, ", .{ Colors.yellow, results.flaky, Colors.reset });
             try s.output().print("{s}Failed: {d}{s}, ", .{ Colors.red, results.failed, Colors.reset });
             try s.output().print("Total: {d} ({d:.2}ms)\n", .{ results.total, total_time_ms });
         } else {
-            try s.output().print("Passed: {d}, Failed: {d}, Total: {d} ({d:.2}ms)\n", .{
+            try s.output().print("Passed: {d}, Flaky: {d}, Failed: {d}, Total: {d} ({d:.2}ms)\n", .{
                 results.passed,
+                results.flaky,
                 results.failed,
                 results.total,
                 total_time_ms,
@@ -391,6 +426,13 @@ pub const DotReporter = struct {
                     try s.output().print(".", .{});
                 }
             },
+            .flaky => {
+                if (reporter.use_colors) {
+                    try s.output().print("{s}~{s}", .{ Colors.yellow, Colors.reset });
+                } else {
+                    try s.output().print("~", .{});
+                }
+            },
             .failed => {
                 if (reporter.use_colors) {
                     try s.output().print("{s}F{s}", .{ Colors.red, Colors.reset });
@@ -422,6 +464,7 @@ pub const JsonReporter = struct {
     writer: std.Io.Writer,
     writer_ref: ?*std.Io.Writer = null,
     suites: std.ArrayList([]const u8),
+    emitted_tests: bool = false,
 
     const Self = @This();
 
@@ -472,9 +515,10 @@ pub const JsonReporter = struct {
         const s = self(reporter);
         const total_time_ms = @as(f64, @floatFromInt(results.total_time_ns)) / 1_000_000.0;
 
-        try s.output().print("],\"summary\":{{\"total\":{d},\"passed\":{d},\"failed\":{d},\"skipped\":{d},\"time\":{d:.2}}}}}\n", .{
+        try s.output().print("\n],\"summary\":{{\"total\":{d},\"passed\":{d},\"flaky\":{d},\"failed\":{d},\"skipped\":{d},\"time\":{d:.2}}}}}\n", .{
             results.total,
             results.passed,
+            results.flaky,
             results.failed,
             results.skipped,
             total_time_ms,
@@ -505,10 +549,14 @@ pub const JsonReporter = struct {
 
         const status_str = switch (test_case.status) {
             .passed => "passed",
+            .flaky => "flaky",
             .failed => "failed",
             .skipped => "skipped",
             else => "unknown",
         };
+
+        if (s.emitted_tests) try s.output().print(",\n", .{});
+        s.emitted_tests = true;
 
         // Note: In a real implementation, you'd want to properly escape JSON strings
         try s.output().print("  {{\"name\":\"{s}\",\"status\":\"{s}\",\"time\":{d:.2}", .{
@@ -521,7 +569,26 @@ pub const JsonReporter = struct {
             try s.output().print(",\"error\":\"{s}\"", .{msg});
         }
 
-        try s.output().print("}},\n", .{});
+        try s.output().print(",\"attempts\":[", .{});
+        for (test_case.attempts.items, 0..) |attempt, index| {
+            if (index > 0) try s.output().print(",", .{});
+            const attempt_status = switch (attempt.status) {
+                .passed => "passed",
+                .flaky => "flaky",
+                .failed => "failed",
+                .skipped => "skipped",
+                else => "unknown",
+            };
+            try s.output().print(
+                "{{\"number\":{d},\"repetition\":{d},\"status\":\"{s}\",\"durationNs\":{d}",
+                .{ attempt.number, attempt.repetition, attempt_status, attempt.duration_ns },
+            );
+            if (attempt.error_message) |message| {
+                try s.output().print(",\"error\":\"{s}\"", .{message});
+            }
+            try s.output().print("}}", .{});
+        }
+        try s.output().print("]}}", .{});
     }
 };
 
@@ -593,6 +660,7 @@ pub const TAPReporter = struct {
 
         const status = switch (test_case.status) {
             .passed => "ok",
+            .flaky => "ok",
             .failed => "not ok",
             .skipped => "ok",
             else => "not ok",
@@ -600,7 +668,9 @@ pub const TAPReporter = struct {
 
         try self.output().print("{s} {d} - {s}", .{ status, self.test_count, test_case.name });
 
-        if (test_case.status == .skipped) {
+        if (test_case.status == .flaky) {
+            try self.output().print(" # FLAKY attempts={d}\n", .{test_case.attempts.items.len});
+        } else if (test_case.status == .skipped) {
             try self.output().print(" # SKIP\n", .{});
         } else if (test_case.status == .failed and test_case.error_message != null) {
             try self.output().print("\n  ---\n  message: {s}\n  ...\n", .{test_case.error_message.?});
@@ -631,6 +701,10 @@ pub const JUnitReporter = struct {
                 if (test_case.error_message) |msg| {
                     allocator.free(msg);
                 }
+                for (test_case.attempts) |attempt| {
+                    if (attempt.error_message) |msg| allocator.free(msg);
+                }
+                allocator.free(test_case.attempts);
             }
             self.tests.deinit(allocator);
             allocator.free(self.name);
@@ -641,6 +715,15 @@ pub const JUnitReporter = struct {
         name: []const u8,
         time: f64,
         status: suite.TestStatus,
+        error_message: ?[]const u8,
+        attempts: []AttemptResult,
+    };
+
+    const AttemptResult = struct {
+        number: usize,
+        repetition: usize,
+        status: suite.TestStatus,
+        duration_ns: u64,
         error_message: ?[]const u8,
     };
 
@@ -716,11 +799,27 @@ pub const JUnitReporter = struct {
             else
                 null;
 
+            const attempts = try self.allocator.alloc(AttemptResult, test_case.attempts.items.len);
+            errdefer self.allocator.free(attempts);
+            for (test_case.attempts.items, 0..) |attempt, index| {
+                attempts[index] = .{
+                    .number = attempt.number,
+                    .repetition = attempt.repetition,
+                    .status = attempt.status,
+                    .duration_ns = attempt.duration_ns,
+                    .error_message = if (attempt.error_message) |message|
+                        try self.allocator.dupe(u8, message)
+                    else
+                        null,
+                };
+            }
+
             const test_result = TestCaseResult{
                 .name = try self.allocator.dupe(u8, test_case.name),
                 .time = time_seconds,
                 .status = test_case.status,
                 .error_message = error_msg,
+                .attempts = attempts,
             };
 
             try test_suite.tests.append(self.allocator, test_result);
@@ -732,10 +831,11 @@ pub const JUnitReporter = struct {
         defer buffer.deinit(self.allocator);
 
         try buffer.appendSlice(self.allocator, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-        try buffer.print(self.allocator, "<testsuites tests=\"{d}\" failures=\"{d}\" skipped=\"{d}\">\n", .{
+        try buffer.print(self.allocator, "<testsuites tests=\"{d}\" failures=\"{d}\" skipped=\"{d}\" flaky=\"{d}\">\n", .{
             results.total,
             results.failed,
             results.skipped,
+            results.flaky,
         });
 
         for (self.suites.items) |suite_result| {
@@ -768,10 +868,15 @@ pub const JUnitReporter = struct {
                     try buffer.print(self.allocator, "      <failure message=\"{s}\"/>\n", .{
                         test_result.error_message orelse "Test failed",
                     });
+                    try writeAttemptHistory(&buffer, self.allocator, test_result.attempts);
                     try buffer.appendSlice(self.allocator, "    </testcase>\n");
                 } else if (test_result.status == .skipped) {
                     try buffer.appendSlice(self.allocator, ">\n");
                     try buffer.appendSlice(self.allocator, "      <skipped/>\n");
+                    try buffer.appendSlice(self.allocator, "    </testcase>\n");
+                } else if (test_result.attempts.len > 1) {
+                    try buffer.appendSlice(self.allocator, ">\n");
+                    try writeAttemptHistory(&buffer, self.allocator, test_result.attempts);
                     try buffer.appendSlice(self.allocator, "    </testcase>\n");
                 } else {
                     try buffer.appendSlice(self.allocator, "/>\n");
@@ -784,6 +889,23 @@ pub const JUnitReporter = struct {
         try buffer.appendSlice(self.allocator, "</testsuites>\n");
 
         try compat.writeFile(self.allocator, self.output_file, buffer.items);
+    }
+
+    fn writeAttemptHistory(
+        buffer: *std.ArrayList(u8),
+        allocator: std.mem.Allocator,
+        attempts: []const AttemptResult,
+    ) !void {
+        try buffer.appendSlice(allocator, "      <system-out>");
+        for (attempts, 0..) |attempt, index| {
+            if (index > 0) try buffer.appendSlice(allocator, "&#10;");
+            try buffer.print(
+                allocator,
+                "attempt={d} repetition={d} status={s} duration_ns={d}",
+                .{ attempt.number, attempt.repetition, @tagName(attempt.status), attempt.duration_ns },
+            );
+        }
+        try buffer.appendSlice(allocator, "</system-out>\n");
     }
 };
 

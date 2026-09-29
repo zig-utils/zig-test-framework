@@ -68,6 +68,48 @@ test "reporter json output" {
     const output = buffer[0..reporter.writer.end];
     try std.testing.expect(std.mem.indexOf(u8, output, "\"name\":\"passes\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "\"passed\":1") != null);
+    var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, output, .{});
+    defer parsed.deinit();
+}
+
+test "reporter json output includes flaky attempt history" {
+    const allocator = std.testing.allocator;
+    var buffer: [4096]u8 = undefined;
+    const writer: std.Io.Writer = .fixed(&buffer);
+    var reporter = ztf.JsonReporter.init(allocator, writer);
+    defer reporter.deinit();
+    var results = ztf.TestResults.init(allocator);
+    defer results.deinit();
+    results.total = 1;
+    results.flaky = 1;
+    var test_case = ztf.TestCase.init("eventually passes", passingTest);
+    defer test_case.attempts.deinit(allocator);
+    test_case.status = .flaky;
+    try test_case.attempts.append(allocator, .{
+        .number = 1,
+        .repetition = 1,
+        .status = .failed,
+        .duration_ns = 10,
+    });
+    try test_case.attempts.append(allocator, .{
+        .number = 2,
+        .repetition = 1,
+        .status = .passed,
+        .duration_ns = 5,
+    });
+
+    try reporter.reporter.onRunStart(1);
+    try reporter.reporter.onSuiteStart("suite");
+    try reporter.reporter.onTestEnd(&test_case);
+    try reporter.reporter.onSuiteEnd("suite");
+    try reporter.reporter.onRunEnd(&results);
+
+    const output = buffer[0..reporter.writer.end];
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"status\":\"flaky\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"attempts\":[") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"durationNs\":10") != null);
+    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, output, .{});
+    defer parsed.deinit();
 }
 
 test "reporter set selects the same built-ins for every executor" {
