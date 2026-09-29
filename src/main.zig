@@ -1,10 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const lib = @import("zig_test_framework");
-const compat = lib.compat;
 
-// Global signal handler state
-var shutdown_requested = std.atomic.Value(bool).init(false);
+// Global signal handler state. Watch mode shares this flag so Ctrl+C can
+// unwind through normal cleanup instead of bypassing the UI server shutdown.
+var keep_running = std.atomic.Value(bool).init(true);
 
 /// Install signal handlers
 fn installSignalHandlers() !void {
@@ -16,7 +16,7 @@ fn installSignalHandlers() !void {
     const Handler = struct {
         fn handle(sig: std.posix.SIG) callconv(.c) void {
             _ = sig;
-            shutdown_requested.store(true, .monotonic);
+            keep_running.store(false, .monotonic);
             std.debug.print("\n\nShutdown requested... cleaning up\n", .{});
         }
     };
@@ -107,19 +107,13 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
     // Start UI server if requested
     var ui_server: ?lib.UIServer = null;
-    var ui_thread: ?std.Thread = null;
-    var server_running = std.atomic.Value(bool).init(false);
 
     defer {
-        if (shutdown_requested.load(.monotonic)) {
+        if (!keep_running.load(.monotonic)) {
             std.debug.print("Cleanup complete.\n", .{});
         }
         if (ui_server) |*server| {
-            server_running.store(false, .monotonic);
             server.deinit();
-        }
-        if (ui_thread) |thread| {
-            thread.detach();
         }
     }
 
@@ -133,38 +127,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
         ui_server = lib.UIServer.init(allocator, ui_options);
         try ui_server.?.start();
 
-        std.debug.print("UI Server started at http://{s}:{d}\n", .{ ui_options.host, ui_options.port });
+        std.debug.print("UI Server started at http://{s}:{d}\n", .{ ui_options.host, ui_server.?.port() });
         std.debug.print("Open this URL in your browser to view test results.\n\n", .{});
-
-        // Start server in background thread
-        const ServerContext = struct {
-            server: *lib.UIServer,
-            running: *std.atomic.Value(bool),
-            verbose: bool,
-
-            fn run(ctx: @This()) void {
-                ctx.running.store(true, .monotonic);
-                while (ctx.running.load(.monotonic)) {
-                    ctx.server.acceptClient() catch |err| {
-                        if (ctx.verbose) {
-                            std.debug.print("UI Server error: {any}\n", .{err});
-                        }
-                        // Small delay to avoid tight loop on errors
-                        compat.sleep(100 * std.time.ns_per_ms);
-                    };
-                }
-            }
-        };
-
-        const server_ctx = ServerContext{
-            .server = &ui_server.?,
-            .running = &server_running,
-            .verbose = cli_parser.options.verbose,
-        };
-        ui_thread = try std.Thread.spawn(.{}, ServerContext.run, .{server_ctx});
-
-        // Give server time to start
-        compat.sleep(100 * std.time.ns_per_ms);
     }
 
     var all_passed: bool = undefined;
@@ -197,8 +161,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
             .verbose = cli_parser.options.verbose,
         };
 
-        var watch_running = std.atomic.Value(bool).init(true);
-        var watcher = lib.TestWatcher.init(allocator, watch_options, &watch_running);
+        var watcher = lib.TestWatcher.init(allocator, watch_options, &keep_running);
 
         // Create coverage options if coverage is enabled
         const cov_opts = if (cli_parser.options.coverage) lib.CoverageOptions{
@@ -303,9 +266,11 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
 
     // Exit with appropriate code
-    if (all_passed) {
-        std.process.exit(0);
-    } else {
-        std.process.exit(1);
-    }
+    if (all_passed) return;
+
+    // `std.process.exit` does not run defers, so explicitly stop the server
+    // before returning the unsuccessful process status.
+    if (ui_server) |*server| server.deinit();
+    ui_server = null;
+    std.process.exit(1);
 }

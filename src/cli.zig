@@ -367,7 +367,6 @@ pub const CLI = struct {
         if (self.options.profile_memory) return "--profile-memory";
         if (self.options.memory_threshold != 0) return "--memory-threshold";
         if (self.options.fail_on_leak) return "--fail-on-leak";
-        if (self.options.ui) return "--ui";
         return null;
     }
 
@@ -763,6 +762,13 @@ test "discovery accepts implemented options" {
 test "discovery accepts reporter selection" {
     var cli = CLI.init(std.testing.allocator);
     const args = [_][]const u8{ "zig-test", "--test-dir", "tests", "--reporter", "json" };
+    try cli.parse(&args);
+    try std.testing.expectEqual(@as(?[]const u8, null), cli.unsupportedDiscoveryOption());
+}
+
+test "discovery accepts the live UI" {
+    var cli = CLI.init(std.testing.allocator);
+    const args = [_][]const u8{ "zig-test", "--test-dir", "tests", "--ui", "--ui-port", "0" };
     try cli.parse(&args);
     try std.testing.expectEqual(@as(?[]const u8, null), cli.unsupportedDiscoveryOption());
 }

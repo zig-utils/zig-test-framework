@@ -105,12 +105,13 @@ This will automatically discover and run all `*.test.zig` files in the `tests` d
 - `--shard-index <N>` - Run one one-based file shard
 - `--shard-count <N>` - Set the total number of file shards
 - `--no-color` - Disable color in child Zig test processes
+- `--ui` - Serve the live test UI (configure it with `--ui-host` and `--ui-port`)
 - `--verbose` - Show detailed output
 
 Discovery and programmatic execution share the same test-plan, lifecycle,
 result, and reporter model. Discovery still rejects options it cannot honor
 instead of silently ignoring them: quiet output, parallel jobs, snapshot
-updates, memory profiling, and the web UI remain programmatic-only. See
+updates, and memory profiling remain programmatic-only. See
 [the execution pipeline architecture](docs/execution-pipeline.md) for extension
 points, timeout semantics, and migration guidance.
 
@@ -128,6 +129,9 @@ zig-test --test-dir tests --no-recursive
 
 # Stop on first failure
 zig-test --test-dir tests --bail
+
+# Watch tests in the live web UI
+zig-test --test-dir tests --ui --watch
 
 # Retry failures twice and fail CI if any test is flaky
 zig-test --test-dir tests --retry 2 --fail-on-flaky
