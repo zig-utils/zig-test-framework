@@ -95,6 +95,8 @@ This will automatically discover and run all `*.test.zig` files in the `tests` d
 - `--no-recursive` - Disable recursive directory search
 - `--bail` - Stop on first failure
 - `--filter <text>` / `--grep <text>` - Run only Zig tests whose names contain the text
+- `--shard-index <N>` - Run one one-based file shard
+- `--shard-count <N>` - Set the total number of file shards
 - `--no-color` - Disable color in child Zig test processes
 - `--verbose` - Show detailed output
 
@@ -117,6 +119,34 @@ zig-test --test-dir tests --no-recursive
 
 # Stop on first failure
 zig-test --test-dir tests --bail
+
+# Run the second of four deterministic file shards
+zig-test --test-dir tests --shard-index 2 --shard-count 4
+```
+
+#### Distributed CI sharding
+
+Sharding is opt-in and file-based. Both options are required, shard indices are
+one-based, and `1 <= shard-index <= shard-count`. Test files are assigned from
+their normalized relative paths with a fixed FNV-1a 64 hash, so the same paths
+and shard count always produce the same assignment on every platform. Each file
+belongs to exactly one shard; a valid shard with no matching files succeeds.
+
+Discovery and file-pattern selection happen before sharding. `--filter` is then
+forwarded to `zig test` for every file in the selected shard. Coverage and bail
+behavior apply only to that shard. The summary prints the shard, selected file
+count, and total discovered file count.
+
+```yaml
+jobs:
+  test:
+    strategy:
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - run: zig build
+      - run: zig build run -- --test-dir tests --shard-index ${{ matrix.shard }} --shard-count 4
 ```
 
 ### Configuration files
@@ -135,6 +165,10 @@ precedence over configured values.
     "recursive": true,
     "filter": "database"
   },
+  "sharding": {
+    "index": 1,
+    "count": 4
+  },
   "coverage": {
     "enabled": false,
     "output_dir": "coverage"
@@ -142,8 +176,8 @@ precedence over configured values.
 }
 ```
 
-The accepted top-level sections are `test`, `parallel`, `reporter`, `snapshot`,
-`watch`, `memory`, `ui`, and `coverage`. Options retain the same execution-mode
+The accepted top-level sections are `test`, `sharding`, `parallel`, `reporter`,
+`snapshot`, `watch`, `memory`, `ui`, and `coverage`. Options retain the same execution-mode
 limitations as their CLI equivalents; unsupported combinations fail explicitly.
 
 ### Parallel execution semantics
@@ -607,6 +641,8 @@ zig-test --no-color
 | `--test-dir <dir>` | | Directory to search for tests |
 | `--pattern <pattern>` | | Test file pattern (default: *.test.zig) |
 | `--no-recursive` | | Disable recursive directory search |
+| `--shard-index <N>` | | Run one one-based file shard |
+| `--shard-count <N>` | | Set the total number of file shards |
 | `--coverage` | | Enable code coverage collection |
 | `--coverage-dir <dir>` | | Coverage output directory (default: coverage) |
 | `--coverage-tool <tool>` | | Coverage tool to use (kcov or grindcov) |
