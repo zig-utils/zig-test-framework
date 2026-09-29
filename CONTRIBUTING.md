@@ -26,7 +26,7 @@ Thank you for your interest in contributing to the Zig Test Framework! This docu
 
 ### Prerequisites
 
-- Zig 0.15.1 or later
+- The exact Zig development build recorded in [`.zig-version`](.zig-version)
 - Git
 - Basic understanding of testing frameworks (Jest, Vitest, or similar)
 

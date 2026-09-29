@@ -5,25 +5,31 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
 
 jobs:
   test:
-    name: Test on ${{ matrix.os }} with Zig ${{ matrix.zig-version }}
+    name: Test on ${{ matrix.os }} with supported Zig
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        zig-version: ['0.17.0-dev']
       fail-fast: false
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Read supported Zig version
+        id: zig-version
+        run: echo "version=$(cat .zig-version)" >> "$GITHUB_OUTPUT"
+
       - name: Setup Zig
         uses: pantry-pm/pantry/packages/action@main
         with:
-          packages: zig@0.17.0-dev
+          packages: zig@${{ steps.zig-version.outputs.version }}
 
       - name: Verify Zig installation
         run: zig version
@@ -45,10 +51,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Read supported Zig version
+        id: zig-version
+        run: echo "version=$(cat .zig-version)" >> "$GITHUB_OUTPUT"
+
       - name: Setup Zig
         uses: pantry-pm/pantry/packages/action@main
         with:
-          packages: zig@0.17.0-dev
+          packages: zig@${{ steps.zig-version.outputs.version }}
 
       - name: Check formatting
         run: zig fmt --check .
@@ -61,10 +71,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Read supported Zig version
+        id: zig-version
+        run: echo "version=$(cat .zig-version)" >> "$GITHUB_OUTPUT"
+
       - name: Setup Zig
         uses: pantry-pm/pantry/packages/action@main
         with:
-          packages: zig@0.17.0-dev
+          packages: zig@${{ steps.zig-version.outputs.version }}
 
       - name: Generate docs
         run: zig build-lib -femit-docs src/lib.zig
@@ -83,10 +97,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Read supported Zig version
+        id: zig-version
+        run: echo "version=$(cat .zig-version)" >> "$GITHUB_OUTPUT"
+
       - name: Setup Zig
         uses: pantry-pm/pantry/packages/action@main
         with:
-          packages: zig@0.17.0-dev
+          packages: zig@${{ steps.zig-version.outputs.version }}
 
       - name: Install kcov
         continue-on-error: true
@@ -121,3 +139,30 @@ jobs:
       - name: Coverage skipped
         if: steps.install-kcov.outcome != 'success'
         run: echo "kcov not available on this platform, skipping coverage"
+
+  latest-zig:
+    name: Compatibility with latest Zig 0.17.0-dev
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    continue-on-error: true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup latest Zig development build
+        uses: pantry-pm/pantry/packages/action@main
+        with:
+          packages: zig@0.17.0-dev
+
+      - name: Verify Zig installation
+        run: zig version
+
+      - name: Build framework
+        run: zig build
+
+      - name: Run tests
+        run: zig build test
+
+      - name: Run examples
+        run: zig build examples
