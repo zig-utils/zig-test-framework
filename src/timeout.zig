@@ -403,14 +403,12 @@ test "TimeoutContext extension" {
     // Extend timeout
     try context.extend(100);
 
-    compat.sleep(120 * std.time.ns_per_ms);
-
-    // Should not be timed out (extended to 200ms total)
+    // Move the clock origin instead of relying on scheduler timing. Under a
+    // loaded CI runner, a nominal 120ms sleep can exceed the 200ms deadline.
+    context.start_time = compat.milliTimestamp() - 120;
     try std.testing.expect(!context.isTimedOut());
 
-    compat.sleep(100 * std.time.ns_per_ms);
-
-    // Should be timed out now
+    context.start_time = compat.milliTimestamp() - 220;
     try std.testing.expect(context.isTimedOut());
 }
 
