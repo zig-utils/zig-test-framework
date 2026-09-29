@@ -56,6 +56,13 @@ pub fn build(b: *std.Build) void {
     // Unit tests for the framework itself
     const lib_unit_tests = b.addTest(.{
         .root_module = lib_module,
+        // The Zig server-mode test runner can deadlock with Threaded network
+        // I/O on Windows. Run this networking-heavy test artifact through the
+        // normal process protocol and use its exit status instead.
+        .test_runner = if (target.result.os.tag == .windows) .{
+            .path = b.path("tests/simple_test_runner.zig"),
+            .mode = .simple,
+        } else null,
     });
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
