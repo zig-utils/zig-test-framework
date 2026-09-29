@@ -79,57 +79,35 @@ pub const TestRunner = struct {
             return RunnerError.NoTestsFound;
         }
 
-        // Notify reporter of run start
-        try current_reporter.onRunStart(total_tests);
-
         // Run tests in parallel or sequential based on options
         if (self.options.parallel) {
             const parallel_opts = parallel.ParallelOptions{
                 .enabled = true,
                 .n_jobs = self.options.n_jobs,
+                .filter = self.options.filter,
             };
 
-            _ = parallel.runTestsParallel(
+            const all_passed = try parallel.runTestsParallel(
                 self.allocator,
                 self.registry,
                 current_reporter,
                 parallel_opts,
-            ) catch |err| {
-                std.debug.print("Parallel execution failed: {any}, falling back to sequential\n", .{err});
-                // Fall back to sequential execution
-                for (self.registry.root_suites.items) |test_suite| {
-                    try self.runSuite(test_suite, current_reporter);
-                    if (self.options.bail and self.results.failed > 0) {
-                        break;
-                    }
-                }
-                return false;
-            };
-
-            // Update results from parallel execution
-            self.results.total = 0;
-            self.results.passed = 0;
-            self.results.failed = 0;
-            self.results.skipped = 0;
+            );
 
             for (self.registry.root_suites.items) |test_suite| {
-                for (test_suite.tests.items) |test_case| {
-                    self.results.total += 1;
-                    switch (test_case.status) {
-                        .passed => self.results.passed += 1,
-                        .failed => self.results.failed += 1,
-                        .skipped => self.results.skipped += 1,
-                        else => {},
-                    }
-                }
+                try self.addSuiteResults(test_suite);
             }
-        } else {
-            // Sequential execution (original behavior)
-            for (self.registry.root_suites.items) |test_suite| {
-                try self.runSuite(test_suite, current_reporter);
-                if (self.options.bail and self.results.failed > 0) {
-                    break;
-                }
+
+            try stdout_writer.interface.flush();
+            return all_passed and self.results.failed == 0;
+        }
+
+        // Sequential execution (original behavior)
+        try current_reporter.onRunStart(total_tests);
+        for (self.registry.root_suites.items) |test_suite| {
+            try self.runSuite(test_suite, current_reporter);
+            if (self.options.bail and self.results.failed > 0) {
+                break;
             }
         }
 
@@ -140,6 +118,11 @@ pub const TestRunner = struct {
         try stdout_writer.interface.flush();
 
         return self.results.failed == 0;
+    }
+
+    fn addSuiteResults(self: *Self, test_suite: *suite.TestSuite) !void {
+        for (test_suite.tests.items) |*test_case| try self.results.addTest(test_case);
+        for (test_suite.suites.items) |nested| try self.addSuiteResults(nested);
     }
 
     /// Run a single test suite
