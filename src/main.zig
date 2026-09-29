@@ -74,6 +74,16 @@ pub fn main(init: std.process.Init.Minimal) !void {
     // Check if we should use test discovery or programmatic tests
     const use_discovery = cli_parser.options.test_dir != null;
 
+    if (use_discovery) {
+        if (cli_parser.unsupportedDiscoveryOption()) |option| {
+            std.debug.print(
+                "Error: {s} cannot be honored in test discovery mode\n",
+                .{option},
+            );
+            std.process.exit(2);
+        }
+    }
+
     // Start UI server if requested
     var ui_server: ?lib.UIServer = null;
     var ui_thread: ?std.Thread = null;
@@ -176,6 +186,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
             .bail = cli_parser.options.bail,
             .filter = cli_parser.options.filter,
             .verbose = cli_parser.options.verbose,
+            .use_colors = !cli_parser.options.no_color,
             .coverage_options = cov_opts,
             .ui_server = if (ui_server) |*server| server else null,
         };
@@ -192,7 +203,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
             .recursive = !cli_parser.options.no_recursive,
         };
 
-        std.debug.print("Discovering tests in '{s}' with pattern '*{s}'...\n\n", .{ discovery_options.root_path, discovery_options.pattern });
+        std.debug.print("Discovering tests in '{s}' with pattern '{s}'...\n\n", .{ discovery_options.root_path, discovery_options.pattern });
 
         var discovered = try lib.discoverTests(allocator, discovery_options);
         defer discovered.deinit();
@@ -213,6 +224,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
             .bail = cli_parser.options.bail,
             .filter = cli_parser.options.filter,
             .verbose = cli_parser.options.verbose,
+            .use_colors = !cli_parser.options.no_color,
             .coverage_options = cov_opts,
             .ui_server = if (ui_server) |*server| server else null,
         };

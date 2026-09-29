@@ -12,6 +12,8 @@ pub const LoaderOptions = struct {
     filter: ?[]const u8 = null,
     /// Whether to show verbose output
     verbose: bool = false,
+    /// Whether child Zig test processes may emit colors
+    use_colors: bool = true,
     /// Coverage options
     coverage_options: ?coverage.CoverageOptions = null,
     /// UI server for real-time updates
@@ -133,27 +135,48 @@ fn runTestFile(
     file_path: []const u8,
     options: LoaderOptions,
 ) !bool {
+    var test_args: std.ArrayList([]const u8) = .empty;
+    defer test_args.deinit(allocator);
+
+    try appendTestArgs(allocator, &test_args, options);
+
     // If coverage is enabled, use coverage.runTestWithCoverage
     if (options.coverage_options) |cov_opts| {
         if (cov_opts.enabled) {
             // Disable clean for individual test runs since we cleaned once at the start
             var modified_opts = cov_opts;
             modified_opts.clean = false;
-            return coverage.runTestWithCoverage(allocator, file_path, modified_opts) catch |err| {
+            return coverage.runTestWithCoverageArgs(allocator, file_path, test_args.items, modified_opts) catch |err| {
                 std.debug.print("Warning: Coverage failed for {s}: {any}\n", .{ file_path, err });
                 // Fall back to running without coverage
-                return runTestFileWithoutCoverage(allocator, file_path);
+                return runTestFileWithoutCoverage(allocator, file_path, test_args.items);
             };
         }
     }
 
-    return runTestFileWithoutCoverage(allocator, file_path);
+    return runTestFileWithoutCoverage(allocator, file_path, test_args.items);
+}
+
+fn appendTestArgs(
+    allocator: std.mem.Allocator,
+    args: *std.ArrayList([]const u8),
+    options: LoaderOptions,
+) !void {
+    if (options.filter) |filter| {
+        try args.append(allocator, "--test-filter");
+        try args.append(allocator, filter);
+    }
+    if (!options.use_colors) {
+        try args.append(allocator, "--color");
+        try args.append(allocator, "off");
+    }
 }
 
 /// Run a single test file without coverage
 fn runTestFileWithoutCoverage(
     allocator: std.mem.Allocator,
     file_path: []const u8,
+    test_args: []const []const u8,
 ) !bool {
     // Build zig test command
     var argv: std.ArrayList([]const u8) = .empty;
@@ -162,6 +185,7 @@ fn runTestFileWithoutCoverage(
     try argv.append(allocator, "zig");
     try argv.append(allocator, "test");
     try argv.append(allocator, file_path);
+    try argv.appendSlice(allocator, test_args);
 
     // Run the test
     const term = try compat.spawnAndWait(allocator, argv.items, .Inherit, .Inherit);
@@ -182,7 +206,25 @@ test "LoaderOptions default values" {
     try std.testing.expectEqual(false, options.bail);
     try std.testing.expectEqual(@as(?[]const u8, null), options.filter);
     try std.testing.expectEqual(false, options.verbose);
+    try std.testing.expectEqual(true, options.use_colors);
     try std.testing.expectEqual(@as(?coverage.CoverageOptions, null), options.coverage_options);
+}
+
+test "test command options forward filter and color" {
+    const allocator = std.testing.allocator;
+    var args: std.ArrayList([]const u8) = .empty;
+    defer args.deinit(allocator);
+
+    try appendTestArgs(allocator, &args, .{
+        .filter = "selected test",
+        .use_colors = false,
+    });
+
+    try std.testing.expectEqual(@as(usize, 4), args.items.len);
+    try std.testing.expectEqualStrings("--test-filter", args.items[0]);
+    try std.testing.expectEqualStrings("selected test", args.items[1]);
+    try std.testing.expectEqualStrings("--color", args.items[2]);
+    try std.testing.expectEqualStrings("off", args.items[3]);
 }
 
 test "LoaderOptions with custom values" {

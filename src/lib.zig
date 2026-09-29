@@ -116,6 +116,7 @@ pub const CoverageResult = coverage.CoverageResult;
 pub const CoverageTool = coverage.CoverageTool;
 pub const runWithCoverage = coverage.runWithCoverage;
 pub const runTestWithCoverage = coverage.runTestWithCoverage;
+pub const runTestWithCoverageArgs = coverage.runTestWithCoverageArgs;
 pub const parseCoverageReport = coverage.parseCoverageReport;
 pub const printCoverageSummary = coverage.printCoverageSummary;
 pub const isCoverageToolAvailable = coverage.isCoverageToolAvailable;
