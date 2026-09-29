@@ -28,10 +28,9 @@ fn getRealtimeClock() struct { sec: i64, nsec: i64 } {
 /// Replaces std.time.nanoTimestamp() which was removed in Zig 0.16.
 pub fn nanoTimestamp() i128 {
     if (comptime builtin.os.tag == .windows) {
-        const ft = std.os.windows.GetSystemTimeAsFileTime();
-        const EPOCH_DIFF: i128 = 11644473600 * 1_000_000_000;
-        const intervals: i128 = @as(i128, @as(u64, ft.dwHighDateTime) << 32 | @as(u64, ft.dwLowDateTime));
-        return intervals * 100 - EPOCH_DIFF;
+        const intervals: i128 = @intCast(std.os.windows.ntdll.RtlGetSystemTimePrecise());
+        const epoch_ns: i128 = std.time.epoch.windows * std.time.ns_per_s;
+        return intervals * 100 + epoch_ns;
     } else {
         const clock = getRealtimeClock();
         return @as(i128, clock.sec) * 1_000_000_000 + @as(i128, clock.nsec);
@@ -41,15 +40,7 @@ pub fn nanoTimestamp() i128 {
 /// Get current wall-clock time in milliseconds since Unix epoch.
 /// Replaces std.time.milliTimestamp() which was removed in Zig 0.16.
 pub fn milliTimestamp() i64 {
-    if (comptime builtin.os.tag == .windows) {
-        const ft = std.os.windows.GetSystemTimeAsFileTime();
-        const EPOCH_DIFF: i64 = 11644473600000;
-        const intervals: i64 = @bitCast(@as(u64, ft.dwHighDateTime) << 32 | @as(u64, ft.dwLowDateTime));
-        return @divFloor(intervals, 10000) - EPOCH_DIFF;
-    } else {
-        const clock = getRealtimeClock();
-        return @as(i64, clock.sec) * 1000 + @divFloor(@as(i64, clock.nsec), 1_000_000);
-    }
+    return @intCast(@divFloor(nanoTimestamp(), std.time.ns_per_ms));
 }
 
 // ============================================================
@@ -59,6 +50,12 @@ pub fn milliTimestamp() i64 {
 /// Sleep for the given number of nanoseconds.
 /// Replaces std.Thread.sleep() which was removed in Zig 0.16.
 pub fn sleep(ns: u64) void {
+    if (comptime builtin.os.tag == .windows) {
+        var interval: std.os.windows.LARGE_INTEGER = -@as(i64, @intCast(@max(ns / 100, 1)));
+        _ = std.os.windows.ntdll.NtDelayExecution(.FALSE, &interval);
+        return;
+    }
+
     const s: isize = @intCast(ns / std.time.ns_per_s);
     const remaining_ns: isize = @intCast(ns % std.time.ns_per_s);
     var ts: std.c.timespec = .{ .sec = s, .nsec = remaining_ns };
@@ -97,123 +94,58 @@ pub const Mutex = struct {
 };
 
 // ============================================================
-// File descriptor close wrapper
-// ============================================================
-
-/// Close a file descriptor using libc.
-/// Replaces std.posix.close() which was removed in Zig 0.16.
-fn closeFd(fd: std.posix.fd_t) void {
-    _ = std.c.close(fd);
-}
-
-// ============================================================
 // File I/O helpers (std.fs.cwd() removed, needs std.Io now)
 // ============================================================
 
-/// Read entire file contents using POSIX APIs.
+fn initIo(allocator: std.mem.Allocator) std.Io.Threaded {
+    return .init(allocator, .{ .environ = currentEnviron() });
+}
+
+fn currentEnviron() std.process.Environ {
+    return if (comptime builtin.os.tag == .windows)
+        .{ .block = .global }
+    else
+        .{ .block = .{ .slice = std.mem.span(std.c.environ) } };
+}
+
+/// Read entire file contents using portable Zig I/O.
 /// Replaces std.fs.cwd().openFile() + file.readToEndAlloc().
 pub fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
-    const path_z = try allocator.dupeSentinel(u8, path, 0);
-    defer allocator.free(path_z);
-
-    const fd = std.posix.openatZ(std.posix.AT.FDCWD, path_z, .{}, 0) catch |err| {
-        if (err == error.FileNotFound) return error.FileNotFound;
-        return err;
-    };
-    defer closeFd(fd);
-
-    // Read file in chunks
-    var result = std.ArrayList(u8).empty;
-    errdefer result.deinit(allocator);
-
-    var buf: [4096]u8 = undefined;
-    while (true) {
-        const n = std.posix.read(fd, &buf) catch |err| return err;
-        if (n == 0) break;
-        try result.appendSlice(allocator, buf[0..n]);
-    }
-
-    return result.toOwnedSlice(allocator);
+    var threaded = initIo(allocator);
+    defer threaded.deinit();
+    return std.Io.Dir.cwd().readFileAlloc(threaded.io(), path, allocator, .unlimited);
 }
 
-/// Write content to a file using POSIX APIs.
+/// Write content to a file using portable Zig I/O.
 /// Replaces std.fs.cwd().createFile() + file.writeAll().
 pub fn writeFile(allocator: std.mem.Allocator, path: []const u8, content: []const u8) !void {
-    const path_z = try allocator.dupeSentinel(u8, path, 0);
-    defer allocator.free(path_z);
-
-    const fd = std.posix.openatZ(std.posix.AT.FDCWD, path_z, .{
-        .ACCMODE = .WRONLY,
-        .CREAT = true,
-        .TRUNC = true,
-    }, 0o644) catch |err| return err;
-    defer closeFd(fd);
-
-    var remaining = content;
-    while (remaining.len > 0) {
-        const rc = std.c.write(fd, remaining.ptr, remaining.len);
-        if (rc < 0) return error.Unexpected;
-        const written: usize = @intCast(rc);
-        remaining = remaining[written..];
-    }
+    var threaded = initIo(allocator);
+    defer threaded.deinit();
+    try std.Io.Dir.cwd().writeFile(threaded.io(), .{ .sub_path = path, .data = content });
 }
 
-/// Delete a file using POSIX APIs.
+/// Delete a file using portable Zig I/O.
 /// Replaces std.fs.cwd().deleteFile().
 pub fn deleteFile(allocator: std.mem.Allocator, path: []const u8) !void {
-    const path_z = try allocator.dupeSentinel(u8, path, 0);
-    defer allocator.free(path_z);
-    const rc = std.c.unlink(path_z);
-    if (rc != 0) {
-        switch (std.c.errno(rc)) {
-            .NOENT => return error.FileNotFound,
-            else => return error.Unexpected,
-        }
-    }
+    var threaded = initIo(allocator);
+    defer threaded.deinit();
+    try std.Io.Dir.cwd().deleteFile(threaded.io(), path);
 }
 
-/// Delete an empty directory using POSIX APIs.
+/// Delete an empty directory using portable Zig I/O.
 /// Replaces std.fs.cwd().deleteDir().
 pub fn deleteDir(allocator: std.mem.Allocator, path: []const u8) !void {
-    const path_z = try allocator.dupeSentinel(u8, path, 0);
-    defer allocator.free(path_z);
-    const rc = std.c.rmdir(path_z);
-    if (rc != 0) {
-        switch (std.c.errno(rc)) {
-            .NOENT => return error.FileNotFound,
-            else => return error.Unexpected,
-        }
-    }
+    var threaded = initIo(allocator);
+    defer threaded.deinit();
+    try std.Io.Dir.cwd().deleteDir(threaded.io(), path);
 }
 
-/// Create directories recursively using POSIX APIs.
+/// Create directories recursively using portable Zig I/O.
 /// Replaces std.fs.cwd().makePath().
 pub fn makePath(allocator: std.mem.Allocator, path: []const u8) !void {
-    const path_z = try allocator.dupeSentinel(u8, path, 0);
-    defer allocator.free(path_z);
-
-    const rc = std.c.mkdir(path_z, 0o755);
-    if (rc == 0) return;
-
-    switch (std.c.errno(rc)) {
-        .EXIST => return, // Already exists
-        .NOENT => {
-            // Parent doesn't exist, find and create it
-            if (std.mem.lastIndexOfScalar(u8, path, '/')) |sep| {
-                if (sep > 0) {
-                    try makePath(allocator, path[0..sep]);
-                    // Retry creating the directory
-                    const retry_z = try allocator.dupeSentinel(u8, path, 0);
-                    defer allocator.free(retry_z);
-                    const rc2 = std.c.mkdir(retry_z, 0o755);
-                    if (rc2 != 0 and std.c.errno(rc2) != .EXIST) {
-                        return error.Unexpected;
-                    }
-                }
-            }
-        },
-        else => return error.Unexpected,
-    }
+    var threaded = initIo(allocator);
+    defer threaded.deinit();
+    try std.Io.Dir.cwd().createDirPath(threaded.io(), path);
 }
 
 // ============================================================
@@ -226,56 +158,44 @@ pub const DirEntry = struct {
     kind: enum { file, directory, sym_link, other },
 };
 
-/// A simple directory iterator using POSIX APIs.
+/// A simple directory iterator using portable Zig I/O.
 /// Replaces std.fs.openDirAbsolute() + dir.iterate() which was removed in Zig 0.16.
 pub const DirIterator = struct {
-    dir: *std.c.DIR,
-    path_buf: [1024]u8,
+    threaded: *std.Io.Threaded,
+    dir: std.Io.Dir,
+    iterator: std.Io.Dir.Iterator,
 
     pub fn open(dir_path: []const u8) !DirIterator {
-        var path_buf: [1024:0]u8 = @splat(0);
-        if (dir_path.len >= path_buf.len) return error.NameTooLong;
-        @memcpy(path_buf[0..dir_path.len], dir_path);
+        const threaded = try std.heap.page_allocator.create(std.Io.Threaded);
+        errdefer std.heap.page_allocator.destroy(threaded);
+        threaded.* = initIo(std.heap.page_allocator);
+        errdefer threaded.deinit();
 
-        const dir = std.c.opendir(&path_buf);
-        if (dir == null) return error.FileNotFound;
+        const dir = try std.Io.Dir.cwd().openDir(threaded.io(), dir_path, .{ .iterate = true });
         return .{
-            .dir = dir.?,
-            .path_buf = undefined,
+            .threaded = threaded,
+            .dir = dir,
+            .iterator = dir.iterateAssumeFirstIteration(),
         };
     }
 
     pub fn next(self: *DirIterator) !?DirEntry {
-        while (true) {
-            const entry_opt = std.c.readdir(self.dir);
-            if (entry_opt == null) return null;
-            const entry = entry_opt.?;
-
-            // Get name as slice
-            const name_ptr: [*]const u8 = @ptrCast(&entry.name);
-            const name_len = if (@hasField(@TypeOf(entry.*), "namlen"))
-                entry.namlen
-            else
-                std.mem.indexOfScalar(u8, name_ptr[0..256], 0) orelse 256;
-            const name = name_ptr[0..name_len];
-
-            // Skip . and ..
-            if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) continue;
-
-            return .{
-                .name = name,
-                .kind = switch (entry.type) {
-                    std.c.DT.DIR => .directory,
-                    std.c.DT.REG => .file,
-                    std.c.DT.LNK => .sym_link,
-                    else => .other,
-                },
-            };
-        }
+        const entry = try self.iterator.next(self.threaded.io()) orelse return null;
+        return .{
+            .name = entry.name,
+            .kind = switch (entry.kind) {
+                .directory => .directory,
+                .file => .file,
+                .sym_link => .sym_link,
+                else => .other,
+            },
+        };
     }
 
     pub fn close(self: *DirIterator) void {
-        _ = std.c.closedir(self.dir);
+        self.dir.close(self.threaded.io());
+        self.threaded.deinit();
+        std.heap.page_allocator.destroy(self.threaded);
     }
 };
 
@@ -298,7 +218,8 @@ pub const SpawnResult = union(enum) {
 };
 
 /// Spawn a child process and wait for it to complete.
-/// Replaces std.process.Child.init() + spawnAndWait() which was removed in Zig 0.16.
+/// Uses Zig's portable process API, including PATH lookup and Windows process
+/// creation, while preserving the compatibility result used by callers.
 pub fn spawnAndWait(
     allocator: std.mem.Allocator,
     argv: []const []const u8,
@@ -307,105 +228,30 @@ pub fn spawnAndWait(
 ) !SpawnResult {
     if (argv.len == 0) return error.InvalidArgument;
 
-    // Convert argv to null-terminated C strings
-    const c_argv = try allocator.alloc(?[*:0]const u8, argv.len + 1);
-    defer allocator.free(c_argv);
+    var threaded = initIo(allocator);
+    defer threaded.deinit();
+    const io = threaded.io();
 
-    for (argv, 0..) |arg, i| {
-        const z = try allocator.dupeSentinel(u8, arg, 0);
-        c_argv[i] = z.ptr;
-    }
-    c_argv[argv.len] = null;
+    var child = try std.process.spawn(io, .{
+        .argv = argv,
+        .stdout = stdBehavior(stdout_behavior),
+        .stderr = stdBehavior(stderr_behavior),
+        .create_no_window = false,
+    });
+    const term = try child.wait(io);
+    return switch (term) {
+        .exited => |code| .{ .Exited = code },
+        .signal => |signal| .{ .Signal = @backingInt(signal) },
+        .stopped => |signal| .{ .Signal = @backingInt(signal) },
+        .unknown => |status| .{ .Unknown = status },
+    };
+}
 
-    // Fork
-    const pid = std.c.fork();
-    if (pid < 0) return error.ForkFailed;
-
-    if (pid == 0) {
-        // Child process
-        // Handle stdout
-        switch (stdout_behavior) {
-            .Ignore => {
-                const dev_null: [*:0]const u8 = "/dev/null";
-                const null_fd = std.posix.openatZ(std.posix.AT.FDCWD, dev_null, .{ .ACCMODE = .WRONLY }, 0) catch std.process.exit(127);
-                if (std.c.dup2(null_fd, 1) < 0) std.process.exit(127);
-                closeFd(null_fd);
-            },
-            else => {},
-        }
-
-        // Handle stderr
-        switch (stderr_behavior) {
-            .Ignore => {
-                const dev_null: [*:0]const u8 = "/dev/null";
-                const null_fd = std.posix.openatZ(std.posix.AT.FDCWD, dev_null, .{ .ACCMODE = .WRONLY }, 0) catch std.process.exit(127);
-                if (std.c.dup2(null_fd, 2) < 0) std.process.exit(127);
-                closeFd(null_fd);
-            },
-            else => {},
-        }
-
-        // Exec - use execve with PATH lookup and current environment
-        const envp: [*:null]const ?[*:0]const u8 = @ptrCast(std.c.environ);
-
-        // Try direct execution first
-        _ = std.c.execve(c_argv[0].?, @ptrCast(c_argv.ptr), envp);
-
-        // If direct exec failed, try PATH lookup
-        const cmd = std.mem.sliceTo(c_argv[0].?, 0);
-        if (std.mem.indexOfScalar(u8, cmd, '/') == null) {
-            // Search PATH
-            var path_search: ?[*:0]const u8 = null;
-            var env_idx: usize = 0;
-            while (std.c.environ[env_idx]) |env_entry| : (env_idx += 1) {
-                const entry = std.mem.sliceTo(env_entry, 0);
-                if (std.mem.startsWith(u8, entry, "PATH=")) {
-                    path_search = @ptrCast(env_entry + 5);
-                    break;
-                }
-            }
-
-            if (path_search) |path_val| {
-                const path_str = std.mem.sliceTo(path_val, 0);
-                var path_iter = std.mem.splitScalar(u8, path_str, ':');
-                while (path_iter.next()) |dir| {
-                    var full_path: [1024:0]u8 = @splat(0);
-                    if (dir.len + 1 + cmd.len < full_path.len) {
-                        @memcpy(full_path[0..dir.len], dir);
-                        full_path[dir.len] = '/';
-                        @memcpy(full_path[dir.len + 1 ..][0..cmd.len], cmd);
-                        _ = std.c.execve(&full_path, @ptrCast(c_argv.ptr), envp);
-                    }
-                }
-            }
-        }
-        std.process.exit(127);
-    }
-
-    // Parent process - free the duped strings
-    for (argv, 0..) |_, i| {
-        const z: [*:0]const u8 = c_argv[i].?;
-        const len = std.mem.len(z);
-        allocator.free(z[0 .. len + 1]);
-    }
-
-    // Wait for child
-    var status: c_int = 0;
-    const wait_result = std.c.waitpid(pid, &status, 0);
-    if (wait_result < 0) return error.WaitFailed;
-
-    const ustatus: u32 = @bitCast(status);
-
-    // Check if exited normally (WIFEXITED)
-    if (ustatus & 0x7f == 0) {
-        // WEXITSTATUS
-        const exit_code: u8 = @intCast((ustatus >> 8) & 0xff);
-        return .{ .Exited = exit_code };
-    }
-
-    // Signal
-    const sig = ustatus & 0x7f;
-    return .{ .Signal = sig };
+fn stdBehavior(behavior: StdBehavior) std.process.SpawnOptions.StdIo {
+    return switch (behavior) {
+        .Inherit, .Pipe => .inherit,
+        .Ignore => .ignore,
+    };
 }
 
 // ============================================================
@@ -452,10 +298,33 @@ pub const ArrayListWriter = struct {
     }
 };
 
-// ============================================================
-// Signal handler type
-// ============================================================
+test "portable file helpers preserve nested paths" {
+    const allocator = std.testing.allocator;
+    const nonce = nanoTimestamp();
+    const dir_path = try std.fmt.allocPrint(allocator, ".zig-cache/compat-{d}", .{nonce});
+    defer allocator.free(dir_path);
+    const file_path = try std.fs.path.join(allocator, &.{ dir_path, "roundtrip.txt" });
+    defer allocator.free(file_path);
 
-/// The signal type used in signal handlers.
-/// In Zig 0.16, this changed from c_int to std.posix.SIG enum.
-pub const SignalType = std.posix.SIG;
+    try makePath(allocator, dir_path);
+    defer deleteDir(allocator, dir_path) catch {};
+    defer deleteFile(allocator, file_path) catch {};
+
+    try writeFile(allocator, file_path, "portable");
+    const contents = try readFileAlloc(allocator, file_path);
+    defer allocator.free(contents);
+    try std.testing.expectEqualStrings("portable", contents);
+}
+
+test "portable process helper preserves exit codes" {
+    const argv: []const []const u8 = if (comptime builtin.os.tag == .windows)
+        &.{ "cmd.exe", "/C", "exit", "7" }
+    else
+        &.{ "sh", "-c", "exit 7" };
+
+    const result = try spawnAndWait(std.testing.allocator, argv, .Ignore, .Ignore);
+    switch (result) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 7), code),
+        else => return error.UnexpectedTermination,
+    }
+}

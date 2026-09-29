@@ -119,11 +119,7 @@ fn scanDirectory(
                     else
                         full_path;
 
-                    // Skip leading slash in relative path
-                    const clean_relative = if (relative_path.len > 0 and relative_path[0] == '/')
-                        relative_path[1..]
-                    else
-                        relative_path;
+                    const clean_relative = cleanRelativePath(relative_path);
 
                     try result.addFile(full_path, clean_relative, entry.name);
                 }
@@ -133,6 +129,15 @@ fn scanDirectory(
             },
         }
     }
+}
+
+/// Removes separators introduced by slicing the root prefix. Accept both
+/// spellings so paths remain stable when a project moves between POSIX and
+/// Windows hosts.
+fn cleanRelativePath(path: []const u8) []const u8 {
+    var start: usize = 0;
+    while (start < path.len and (path[start] == '/' or path[start] == '\\')) : (start += 1) {}
+    return path[start..];
 }
 
 /// Check if a filename matches the pattern
@@ -159,4 +164,9 @@ test "matchesPattern with *.test.zig" {
 test "matchesPattern with exact match" {
     try std.testing.expect(matchesPattern("test.zig", "test.zig"));
     try std.testing.expect(!matchesPattern("other.zig", "test.zig"));
+}
+
+test "relative paths discard POSIX and Windows separators" {
+    try std.testing.expectEqualStrings("suite/sample.test.zig", cleanRelativePath("/suite/sample.test.zig"));
+    try std.testing.expectEqualStrings("suite\\sample.test.zig", cleanRelativePath("\\suite\\sample.test.zig"));
 }
