@@ -169,6 +169,16 @@ pub fn runTestWithCoverage(
     test_file_path: []const u8,
     options: CoverageOptions,
 ) !bool {
+    return runTestWithCoverageArgs(allocator, test_file_path, &.{}, options);
+}
+
+/// Run a test file with coverage while forwarding Zig test arguments.
+pub fn runTestWithCoverageArgs(
+    allocator: std.mem.Allocator,
+    test_file_path: []const u8,
+    test_args: []const []const u8,
+    options: CoverageOptions,
+) !bool {
     if (!options.enabled) {
         return error.CoverageNotEnabled;
     }
@@ -189,6 +199,7 @@ pub fn runTestWithCoverage(
         try argv.append(allocator, "zig");
         try argv.append(allocator, "test");
         try argv.append(allocator, test_file_path);
+        try argv.appendSlice(allocator, test_args);
 
         const term = try compat.spawnAndWait(allocator, argv.items, .Inherit, .Inherit);
         return switch (term) {
@@ -210,6 +221,7 @@ pub fn runTestWithCoverage(
     try argv.append(allocator, "zig");
     try argv.append(allocator, "test");
     try argv.append(allocator, test_file_path);
+    try argv.appendSlice(allocator, test_args);
 
     switch (options.tool) {
         .kcov => {

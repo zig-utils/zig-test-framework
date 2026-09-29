@@ -11,7 +11,7 @@ pub const CLIOptions = struct {
     quiet: bool = false,
     no_color: bool = false,
     // Test discovery options
-    test_dir: ?[]const u8 = null,
+    test_dir: ?[]const u8 = ".",
     pattern: []const u8 = "*.test.zig",
     no_recursive: bool = false,
     // Coverage options
@@ -140,6 +140,12 @@ pub const CLI = struct {
                 }
                 i += 1;
                 self.options.coverage_tool = args[i];
+                if (!std.mem.eql(u8, self.options.coverage_tool, "kcov") and
+                    !std.mem.eql(u8, self.options.coverage_tool, "grindcov"))
+                {
+                    std.debug.print("Error: --coverage-tool must be 'kcov' or 'grindcov'\n", .{});
+                    return CLIError.InvalidArgument;
+                }
             } else if (std.mem.eql(u8, arg, "--parallel") or std.mem.eql(u8, arg, "-p")) {
                 self.options.parallel = true;
             } else if (std.mem.eql(u8, arg, "--jobs") or std.mem.eql(u8, arg, "-j")) {
@@ -153,6 +159,10 @@ pub const CLI = struct {
                     std.debug.print("Error: --jobs must be a valid number\n", .{});
                     return CLIError.InvalidArgument;
                 };
+                if (self.options.jobs.? == 0) {
+                    std.debug.print("Error: --jobs must be greater than zero\n", .{});
+                    return CLIError.InvalidArgument;
+                }
             } else if (std.mem.eql(u8, arg, "--ui")) {
                 self.options.ui = true;
             } else if (std.mem.eql(u8, arg, "--ui-port")) {
@@ -243,6 +253,31 @@ pub const CLI = struct {
                 self.options.test_dir = arg;
             }
         }
+    }
+
+    /// Return the first option that discovery mode cannot currently honor.
+    /// Discovery must reject these options explicitly instead of silently
+    /// behaving differently from programmatic mode.
+    pub fn unsupportedDiscoveryOption(self: Self) ?[]const u8 {
+        if (!self.options.coverage and !std.mem.eql(u8, self.options.coverage_dir, "coverage")) return "--coverage-dir";
+        if (!self.options.coverage and !std.mem.eql(u8, self.options.coverage_tool, "kcov")) return "--coverage-tool";
+        if (!self.options.watch and self.options.watch_debounce != 300) return "--watch-debounce";
+        if (!self.options.ui and self.options.ui_port != 8080) return "--ui-port";
+        if (!self.options.ui and !std.mem.eql(u8, self.options.ui_host, "127.0.0.1")) return "--ui-host";
+        if (self.options.reporter != .spec) return "--reporter";
+        if (self.options.quiet) return "--quiet";
+        if (self.options.parallel) return "--parallel";
+        if (self.options.jobs != null) return "--jobs";
+        if (self.options.update_snapshots) return "--update-snapshots";
+        if (!std.mem.eql(u8, self.options.snapshot_dir, ".snapshots")) return "--snapshot-dir";
+        if (self.options.profile_memory) return "--profile-memory";
+        if (self.options.memory_threshold != 0) return "--memory-threshold";
+        if (self.options.fail_on_leak) return "--fail-on-leak";
+        if (self.options.config != null) return "--config";
+        if (self.options.junit_output != null) return "--junit-output";
+        if (self.options.timeout != null) return "--timeout";
+        if (self.options.ui) return "--ui";
+        return null;
     }
 
     /// Print help message
@@ -467,6 +502,7 @@ test "CLI default values" {
     try std.testing.expectEqualStrings("coverage", cli.options.coverage_dir);
     try std.testing.expectEqualStrings("kcov", cli.options.coverage_tool);
     try std.testing.expectEqualStrings("*.test.zig", cli.options.pattern);
+    try std.testing.expectEqualStrings(".", cli.options.test_dir.?);
     try std.testing.expect(!cli.options.ui);
     try std.testing.expectEqual(@as(u16, 8080), cli.options.ui_port);
     try std.testing.expectEqualStrings("127.0.0.1", cli.options.ui_host);
@@ -529,6 +565,52 @@ test "CLI parse timeout" {
     const args = [_][]const u8{ "zig-test", "--timeout", "5000" };
     try cli.parse(&args);
     try std.testing.expectEqual(@as(?u64, 5000), cli.options.timeout);
+}
+
+test "CLI rejects invalid coverage tool" {
+    var cli = CLI.init(std.testing.allocator);
+    const args = [_][]const u8{ "zig-test", "--coverage-tool", "unknown" };
+    try std.testing.expectError(CLIError.InvalidArgument, cli.parse(&args));
+}
+
+test "CLI rejects zero jobs" {
+    var cli = CLI.init(std.testing.allocator);
+    const args = [_][]const u8{ "zig-test", "--jobs", "0" };
+    try std.testing.expectError(CLIError.InvalidArgument, cli.parse(&args));
+}
+
+test "discovery accepts implemented options" {
+    var cli = CLI.init(std.testing.allocator);
+    const args = [_][]const u8{
+        "zig-test",
+        "--test-dir",
+        "tests",
+        "--filter",
+        "math",
+        "--no-color",
+        "--bail",
+        "--verbose",
+    };
+    try cli.parse(&args);
+    try std.testing.expectEqual(@as(?[]const u8, null), cli.unsupportedDiscoveryOption());
+}
+
+test "discovery identifies unsupported options" {
+    var cli = CLI.init(std.testing.allocator);
+    const args = [_][]const u8{ "zig-test", "--test-dir", "tests", "--reporter", "json" };
+    try cli.parse(&args);
+    try std.testing.expectEqualStrings("--reporter", cli.unsupportedDiscoveryOption().?);
+}
+
+test "discovery reports timeout and parallel options as unsupported" {
+    var cli = CLI.init(std.testing.allocator);
+
+    cli.options.timeout = 1000;
+    try std.testing.expectEqualStrings("--timeout", cli.unsupportedDiscoveryOption().?);
+
+    cli.options.timeout = null;
+    cli.options.parallel = true;
+    try std.testing.expectEqualStrings("--parallel", cli.unsupportedDiscoveryOption().?);
 }
 
 test "CLI parse update-snapshots short flag" {
