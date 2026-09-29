@@ -78,32 +78,68 @@ pub const UIServer = struct {
     /// Stop accepting connections and close every active event stream.
     pub fn stop(self: *Self) void {
         const was_running = self.running.swap(false, .acq_rel);
+        var wake_io: ?std.Io.Threaded = null;
+        var wake_stream: ?std.Io.net.Stream = null;
+
         if (was_running) {
-            if (self.listener) |server| {
-                const listening_stream = std.Io.net.Stream{ .socket = server.socket };
-                listening_stream.shutdown(self.threaded_io.io(), .both) catch {};
-                server.socket.close(self.threaded_io.io());
+            // A client may have connected without finishing its request
+            // headers. Shutdown unblocks the parser while leaving ownership of
+            // the socket with the accept thread.
+            self.mutex.lock();
+            if (self.active_client) |client| client.shutdown(self.threaded_io.io(), .both) catch {};
+            self.mutex.unlock();
+
+            // Closing a listening socket from another thread makes the current
+            // Zig Windows backend treat the canceled accept as unreachable.
+            // Wake it with a loopback connection on an independent I/O runtime:
+            // sharing the server runtime here can deadlock its blocking accept
+            // on Linux and Windows. Keep the connection alive until accept has
+            // returned so the peer cannot disappear from the listen queue.
+            wake_io = .init(self.allocator, .{ .environ = .empty });
+            if (wake_io) |*threaded| {
+                wake_stream = self.connectWake(threaded.io());
             }
         }
-
-        // A client may have connected without finishing its request headers.
-        // Shutting down that in-flight socket ensures shutdown cannot hang
-        // waiting for the request parser; the accept thread remains its owner.
-        self.mutex.lock();
-        if (self.active_client) |client| client.shutdown(self.threaded_io.io(), .both) catch {};
-        self.mutex.unlock();
 
         if (self.thread) |thread| {
             thread.join();
             self.thread = null;
         }
 
-        self.listener = null;
+        if (wake_stream) |stream| {
+            if (wake_io) |*threaded| stream.close(threaded.io());
+        }
+        if (wake_io) |*threaded| threaded.deinit();
+
+        if (self.listener) |*server| {
+            server.deinit(self.threaded_io.io());
+            self.listener = null;
+        }
 
         self.mutex.lock();
         defer self.mutex.unlock();
         for (self.clients.items) |client| client.close(self.threaded_io.io());
         self.clients.clearRetainingCapacity();
+    }
+
+    fn connectWake(self: *Self, io: std.Io) ?std.Io.net.Stream {
+        const server = self.listener orelse return null;
+        var address = server.socket.address;
+        switch (address) {
+            .ip4 => |ip4| {
+                if (std.mem.eql(u8, &ip4.bytes, &.{ 0, 0, 0, 0 })) {
+                    address = .{ .ip4 = .loopback(ip4.port) };
+                }
+            },
+            .ip6 => |ip6| {
+                const unspecified: [16]u8 = @splat(0);
+                if (std.mem.eql(u8, &ip6.bytes, &unspecified)) {
+                    address = .{ .ip6 = .loopback(ip6.port) };
+                }
+            },
+        }
+
+        return address.connect(io, .{ .mode = .stream }) catch null;
     }
 
     /// Return the actual bound port. This differs from the requested port when
