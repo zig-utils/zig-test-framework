@@ -1,6 +1,9 @@
 const std = @import("std");
 const discovery = @import("discovery.zig");
 const sharding = @import("sharding.zig");
+const pipeline = @import("pipeline.zig");
+const reporter = @import("reporter.zig");
+const suite = @import("suite.zig");
 const coverage = @import("coverage.zig");
 const ui_server = @import("ui_server.zig");
 const compat = @import("compat.zig");
@@ -17,6 +20,15 @@ pub const LoaderOptions = struct {
     use_colors: bool = true,
     /// Optional one-based file shard to execute
     shard: ?sharding.ShardOptions = null,
+    /// Reporter shared with programmatic execution
+    reporter_type: reporter.ReporterType = .spec,
+    /// Output path used by the JUnit reporter
+    junit_output: []const u8 = "test-results.xml",
+    /// Global per-file timeout checked by the shared execution policy
+    timeout_ms: ?u64 = null,
+    /// Optional output supplied by a CLI host. Embedded/test callers default
+    /// to stderr so they do not interfere with Zig's stdout test protocol.
+    reporter_writer: ?*std.Io.Writer = null,
     /// Coverage options
     coverage_options: ?coverage.CoverageOptions = null,
     /// UI server for real-time updates
@@ -34,7 +46,9 @@ pub fn runDiscoveredTests(
         return false;
     }
 
-    const selected_files = try selectedFileCount(discovered, options.shard);
+    var plan = try discoveryPlan(allocator, discovered, options.shard);
+    defer plan.deinit();
+    const selected_files = plan.items.items.len;
     if (options.shard) |shard| {
         std.debug.print(
             "Shard {}/{}: selected {} of {} test file(s).\n",
@@ -43,11 +57,36 @@ pub fn runDiscoveredTests(
     }
 
     std.debug.print("Found {} test file(s):\n", .{selected_files});
-    for (discovered.files.items) |file| {
-        if (!try fileSelected(file.relative_path, options.shard)) continue;
+    for (plan.items.items) |item| {
+        const file = item.discovered;
         std.debug.print("  - {s}\n", .{file.relative_path});
     }
     std.debug.print("\n", .{});
+
+    const stderr_file = std.Io.File.stderr();
+    var stderr_buffer: [4096]u8 = undefined;
+    var threaded_io: std.Io.Threaded = .init(std.mem.Allocator.failing, .{ .environ = .empty });
+    defer threaded_io.deinit();
+    var stderr_writer = stderr_file.writer(threaded_io.io(), &stderr_buffer);
+    const reporter_writer = options.reporter_writer orelse &stderr_writer.interface;
+    var reporters = reporter.ReporterSet.initRef(
+        allocator,
+        reporter_writer,
+        options.reporter_type,
+        options.junit_output,
+        options.use_colors,
+    );
+    defer reporters.deinit();
+    const events = pipeline.EventStream{ .rep = reporters.selected() };
+    const policy = pipeline.ExecutionPolicy{
+        .bail = options.bail,
+        .filter = options.filter,
+        .timeout_ms = options.timeout_ms,
+    };
+    var results = reporter.TestResults.init(allocator);
+    defer results.deinit();
+
+    try events.emit(.{ .run_started = selected_files });
 
     // Notify UI of run start
     if (options.ui_server) |server| {
@@ -56,8 +95,6 @@ pub fn runDiscoveredTests(
         try server.broadcast("run_start", json);
     }
 
-    var total_passed: usize = 0;
-    var total_failed: usize = 0;
     var files_run: usize = 0;
 
     // Clean coverage directory once before all tests if coverage is enabled
@@ -68,11 +105,12 @@ pub fn runDiscoveredTests(
         }
     }
 
-    for (discovered.files.items) |file| {
-        if (!try fileSelected(file.relative_path, options.shard)) continue;
-
+    for (plan.items.items) |item| {
+        const file = item.discovered;
         // Run each test file using zig test command
         std.debug.print("Running {s}...\n", .{file.relative_path});
+        try events.emit(.{ .suite_started = file.relative_path });
+        try events.emit(.{ .test_started = file.name });
 
         // Notify UI of test file start
         if (options.ui_server) |server| {
@@ -83,11 +121,25 @@ pub fn runDiscoveredTests(
         }
 
         const start_time = compat.nanoTimestamp();
-        const result = try runTestFile(allocator, file.path, options);
+        var result = try runTestFile(allocator, file.path, options);
         const end_time = compat.nanoTimestamp();
         const execution_time_ns: u64 = @intCast(end_time - start_time);
+        const timed_out = policy.timedOut(execution_time_ns);
+        if (timed_out) result = false;
 
         files_run += 1;
+        var test_case = suite.TestCase.init(file.name, externalTestNoop);
+        test_case.file = file.relative_path;
+        test_case.execution_time_ns = execution_time_ns;
+        test_case.status = if (result) .passed else .failed;
+        if (timed_out) {
+            test_case.error_message = "External test file exceeded the configured timeout";
+        } else if (!result) {
+            test_case.error_message = "External zig test process failed";
+        }
+        try results.addTest(&test_case);
+        try events.emit(.{ .test_finished = &test_case });
+        try events.emit(.{ .suite_finished = file.relative_path });
 
         // Notify UI of test file end
         if (options.ui_server) |server| {
@@ -99,15 +151,10 @@ pub fn runDiscoveredTests(
         }
 
         if (result) {
-            total_passed += 1;
-            if (options.verbose) {
-                std.debug.print("  ✓ {s} passed\n", .{file.name});
-            }
+            if (options.verbose) std.debug.print("  ✓ {s} passed\n", .{file.name});
         } else {
-            total_failed += 1;
             std.debug.print("  ✗ {s} failed\n", .{file.name});
-
-            if (options.bail) {
+            if (policy.shouldStop(&results)) {
                 std.debug.print("\nStopping on first failure (--bail)\n", .{});
                 break;
             }
@@ -118,48 +165,49 @@ pub fn runDiscoveredTests(
     if (options.coverage_options) |cov_opts| {
         if (cov_opts.enabled and files_run > 0) {
             std.debug.print("\n", .{});
-            const cov_result = coverage.parseCoverageReport(allocator, cov_opts.output_dir) catch |err| {
+            const cov_result: ?coverage.CoverageResult = coverage.parseCoverageReport(allocator, cov_opts.output_dir) catch |err| result: {
                 std.debug.print("Warning: Could not parse coverage report: {any}\n", .{err});
-                return total_failed == 0;
+                break :result null;
             };
-
-            coverage.printCoverageSummary(cov_result);
+            if (cov_result) |summary| coverage.printCoverageSummary(summary);
         }
     }
 
     // Notify UI of run end
     if (options.ui_server) |server| {
         var buffer: [512]u8 = undefined;
-        const json = try std.fmt.bufPrint(&buffer, "{{\"total\":{d},\"passed\":{d},\"failed\":{d},\"skipped\":0}}", .{ files_run, total_passed, total_failed });
+        const json = try std.fmt.bufPrint(&buffer, "{{\"total\":{d},\"passed\":{d},\"failed\":{d},\"skipped\":{d}}}", .{ results.total, results.passed, results.failed, results.skipped });
         try server.broadcast("run_end", json);
     }
 
-    std.debug.print("\n", .{});
-    std.debug.print("Test Summary:\n", .{});
     if (options.shard) |shard| {
+        std.debug.print("\nShard Summary:\n", .{});
         std.debug.print("  Shard: {}/{}\n", .{ shard.index, shard.count });
         std.debug.print("  Selected: {} of {} files\n", .{ selected_files, discovered.files.items.len });
     }
-    std.debug.print("  Files run: {}\n", .{files_run});
-    std.debug.print("  Passed: {}\n", .{total_passed});
-    std.debug.print("  Failed: {}\n", .{total_failed});
+    try events.emit(.{ .run_finished = &results });
+    try reporters.flush();
 
-    return total_failed == 0;
+    return results.failed == 0;
 }
+
+fn externalTestNoop(_: std.mem.Allocator) !void {}
 
 fn fileSelected(relative_path: []const u8, shard: ?sharding.ShardOptions) !bool {
     return if (shard) |selection| selection.includes(relative_path) else true;
 }
 
-fn selectedFileCount(
-    discovered: *const discovery.DiscoveryResult,
+fn discoveryPlan(
+    allocator: std.mem.Allocator,
+    discovered: *discovery.DiscoveryResult,
     shard: ?sharding.ShardOptions,
-) !usize {
-    var count: usize = 0;
-    for (discovered.files.items) |file| {
-        if (try fileSelected(file.relative_path, shard)) count += 1;
+) !pipeline.TestPlan {
+    var plan = pipeline.TestPlan.init(allocator);
+    errdefer plan.deinit();
+    for (discovered.files.items) |*file| {
+        if (try fileSelected(file.relative_path, shard)) try plan.appendDiscovered(file);
     }
-    return count;
+    return plan;
 }
 
 /// Run a single test file using `zig test`
@@ -241,6 +289,10 @@ test "LoaderOptions default values" {
     try std.testing.expectEqual(false, options.verbose);
     try std.testing.expectEqual(true, options.use_colors);
     try std.testing.expectEqual(@as(?sharding.ShardOptions, null), options.shard);
+    try std.testing.expectEqual(reporter.ReporterType.spec, options.reporter_type);
+    try std.testing.expectEqualStrings("test-results.xml", options.junit_output);
+    try std.testing.expectEqual(@as(?u64, null), options.timeout_ms);
+    try std.testing.expectEqual(@as(?*std.Io.Writer, null), options.reporter_writer);
     try std.testing.expectEqual(@as(?coverage.CoverageOptions, null), options.coverage_options);
 }
 
@@ -303,10 +355,9 @@ test "file sharding partitions discovered files exactly once" {
 
     var total_selected: usize = 0;
     for (1..4) |index| {
-        total_selected += try selectedFileCount(
-            &discovered,
-            .{ .index = index, .count = 3 },
-        );
+        var plan = try discoveryPlan(allocator, &discovered, .{ .index = index, .count = 3 });
+        defer plan.deinit();
+        total_selected += plan.items.items.len;
     }
 
     try std.testing.expectEqual(discovered.files.items.len, total_selected);

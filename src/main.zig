@@ -161,6 +161,11 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
 
     var all_passed: bool = undefined;
+    const stdout_file = std.Io.File.stdout();
+    var stdout_buffer: [4096]u8 = undefined;
+    var reporter_io: std.Io.Threaded = .init(std.mem.Allocator.failing, .{ .environ = .empty });
+    defer reporter_io.deinit();
+    var stdout_writer = stdout_file.writer(reporter_io.io(), &stdout_buffer);
     const shard_options: ?lib.ShardOptions = if (cli_parser.options.shard_index) |index|
         .{ .index = index, .count = cli_parser.options.shard_count.? }
     else
@@ -206,6 +211,10 @@ pub fn main(init: std.process.Init.Minimal) !void {
             .verbose = cli_parser.options.verbose,
             .use_colors = !cli_parser.options.no_color,
             .shard = shard_options,
+            .reporter_type = cli_parser.options.reporter,
+            .junit_output = cli_parser.options.junit_output orelse "test-results.xml",
+            .timeout_ms = cli_parser.options.timeout,
+            .reporter_writer = &stdout_writer.interface,
             .coverage_options = cov_opts,
             .ui_server = if (ui_server) |*server| server else null,
         };
@@ -245,6 +254,10 @@ pub fn main(init: std.process.Init.Minimal) !void {
             .verbose = cli_parser.options.verbose,
             .use_colors = !cli_parser.options.no_color,
             .shard = shard_options,
+            .reporter_type = cli_parser.options.reporter,
+            .junit_output = cli_parser.options.junit_output orelse "test-results.xml",
+            .timeout_ms = cli_parser.options.timeout,
+            .reporter_writer = &stdout_writer.interface,
             .coverage_options = cov_opts,
             .ui_server = if (ui_server) |*server| server else null,
         };
@@ -256,7 +269,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
         defer lib.cleanupRegistry();
 
         // Create test runner with CLI options
-        const runner_options = cli_parser.toRunnerOptions();
+        var runner_options = cli_parser.toRunnerOptions();
+        runner_options.reporter_writer = &stdout_writer.interface;
         var runner = lib.TestRunner.init(allocator, registry, runner_options);
         defer runner.deinit();
 

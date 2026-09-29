@@ -1,6 +1,7 @@
 const std = @import("std");
 const suite = @import("suite.zig");
 const reporter_mod = @import("reporter.zig");
+const pipeline = @import("pipeline.zig");
 const parallel = @import("parallel.zig");
 const compat = @import("compat.zig");
 
@@ -16,15 +17,14 @@ pub const RunnerOptions = struct {
     use_colors: bool = true,
     parallel: bool = false, // Enable parallel execution
     n_jobs: ?usize = null, // Number of parallel jobs
+    junit_output: []const u8 = "test-results.xml",
+    timeout_ms: ?u64 = null,
+    /// Optional output supplied by a CLI host. Embedded/test callers default
+    /// to stderr so they do not interfere with Zig's stdout test protocol.
+    reporter_writer: ?*std.Io.Writer = null,
 };
 
-pub const ReporterType = enum {
-    spec,
-    dot,
-    json,
-    tap,
-    junit,
-};
+pub const ReporterType = reporter_mod.ReporterType;
 
 pub const TestRunner = struct {
     allocator: std.mem.Allocator,
@@ -49,32 +49,27 @@ pub const TestRunner = struct {
 
     /// Run all registered tests
     pub fn run(self: *Self) !bool {
-        const stdout_file = std.Io.File.stdout();
-        var stdout_buffer: [4096]u8 = undefined;
+        const stderr_file = std.Io.File.stderr();
+        var stderr_buffer: [4096]u8 = undefined;
         var threaded_io: std.Io.Threaded = .init(std.mem.Allocator.failing, .{ .environ = .empty });
         defer threaded_io.deinit();
-        var stdout_writer = stdout_file.writer(threaded_io.io(), &stdout_buffer);
+        var stderr_writer = stderr_file.writer(threaded_io.io(), &stderr_buffer);
+        const reporter_writer = self.options.reporter_writer orelse &stderr_writer.interface;
 
-        // Create reporter
-        var spec_reporter = reporter_mod.SpecReporter.init(self.allocator, stdout_writer.interface);
-        var dot_reporter = reporter_mod.DotReporter.init(self.allocator, stdout_writer.interface);
-        var json_reporter = reporter_mod.JsonReporter.init(self.allocator, stdout_writer.interface);
-        defer json_reporter.deinit();
-        var tap_reporter = reporter_mod.TAPReporter.init(self.allocator, stdout_writer.interface);
-        var junit_reporter = reporter_mod.JUnitReporter.init(self.allocator, "test-results.xml");
-        defer junit_reporter.deinit();
+        var reporters = reporter_mod.ReporterSet.initRef(
+            self.allocator,
+            reporter_writer,
+            self.options.reporter_type,
+            self.options.junit_output,
+            self.options.use_colors,
+        );
+        defer reporters.deinit();
+        const current_reporter = reporters.selected();
+        const events = pipeline.EventStream{ .rep = current_reporter };
 
-        var current_reporter: *reporter_mod.Reporter = switch (self.options.reporter_type) {
-            .spec => &spec_reporter.reporter,
-            .dot => &dot_reporter.reporter,
-            .json => &json_reporter.reporter,
-            .tap => &tap_reporter.reporter,
-            .junit => &junit_reporter.reporter,
-        };
-
-        current_reporter.use_colors = self.options.use_colors;
-
-        const total_tests = self.registry.countAllTests();
+        var plan = try pipeline.TestPlan.fromRegistry(self.allocator, self.registry);
+        defer plan.deinit();
+        const total_tests = plan.items.items.len;
         if (total_tests == 0) {
             return RunnerError.NoTestsFound;
         }
@@ -85,6 +80,7 @@ pub const TestRunner = struct {
                 .enabled = true,
                 .n_jobs = self.options.n_jobs,
                 .filter = self.options.filter,
+                .timeout_ms = self.options.timeout_ms,
             };
 
             const all_passed = try parallel.runTestsParallel(
@@ -98,24 +94,24 @@ pub const TestRunner = struct {
                 try self.addSuiteResults(test_suite);
             }
 
-            try stdout_writer.interface.flush();
+            try reporters.flush();
             return all_passed and self.results.failed == 0;
         }
 
         // Sequential execution (original behavior)
-        try current_reporter.onRunStart(total_tests);
+        try events.emit(.{ .run_started = total_tests });
         for (self.registry.root_suites.items) |test_suite| {
-            try self.runSuite(test_suite, current_reporter);
-            if (self.options.bail and self.results.failed > 0) {
+            try self.runSuite(test_suite, events);
+            if (self.policy().shouldStop(&self.results)) {
                 break;
             }
         }
 
         // Notify reporter of run end
-        try current_reporter.onRunEnd(&self.results);
+        try events.emit(.{ .run_finished = &self.results });
 
         // Flush output
-        try stdout_writer.interface.flush();
+        try reporters.flush();
 
         return self.results.failed == 0;
     }
@@ -126,26 +122,26 @@ pub const TestRunner = struct {
     }
 
     /// Run a single test suite
-    fn runSuite(self: *Self, test_suite: *suite.TestSuite, rep: *reporter_mod.Reporter) !void {
+    fn runSuite(self: *Self, test_suite: *suite.TestSuite, events: pipeline.EventStream) !void {
         // Skip if marked as skip or if has_only and this isn't marked as only
         if (test_suite.shouldSkip()) {
-            try self.skipAllTests(test_suite);
+            try self.skipAllTests(test_suite, events);
             return;
         }
 
         if (self.registry.has_only and !test_suite.hasOnly()) {
-            try self.skipAllTests(test_suite);
+            try self.skipAllTests(test_suite, events);
             return;
         }
 
         // Notify reporter
-        try rep.onSuiteStart(test_suite.name);
+        try events.emit(.{ .suite_started = test_suite.name });
 
         // Run beforeAll hooks
         test_suite.runBeforeAllHooks(self.allocator) catch |err| {
             std.debug.print("beforeAll hook failed: {any}\n", .{err});
-            try self.skipAllTests(test_suite);
-            try rep.onSuiteEnd(test_suite.name);
+            try self.skipAllTests(test_suite, events);
+            try events.emit(.{ .suite_finished = test_suite.name });
             return;
         };
 
@@ -153,32 +149,30 @@ pub const TestRunner = struct {
         for (test_suite.tests.items) |*test_case| {
             if (test_case.skip or (self.registry.has_only and !test_case.only)) {
                 test_case.status = .skipped;
-                try rep.onTestEnd(test_case);
+                try events.emit(.{ .test_finished = test_case });
                 try self.results.addTest(test_case);
                 continue;
             }
 
             // Check filter
-            if (self.options.filter) |filter| {
-                if (std.mem.indexOf(u8, test_case.name, filter) == null) {
-                    test_case.status = .skipped;
-                    try rep.onTestEnd(test_case);
-                    try self.results.addTest(test_case);
-                    continue;
-                }
+            if (!self.policy().matches(test_case.name)) {
+                test_case.status = .skipped;
+                try events.emit(.{ .test_finished = test_case });
+                try self.results.addTest(test_case);
+                continue;
             }
 
-            try self.runTest(test_case, test_suite, rep);
+            try self.runTest(test_case, test_suite, events);
 
-            if (self.options.bail and test_case.status == .failed) {
+            if (self.policy().shouldStop(&self.results)) {
                 break;
             }
         }
 
         // Run nested suites
         for (test_suite.suites.items) |nested_suite| {
-            try self.runSuite(nested_suite, rep);
-            if (self.options.bail and self.results.failed > 0) {
+            try self.runSuite(nested_suite, events);
+            if (self.policy().shouldStop(&self.results)) {
                 break;
             }
         }
@@ -188,12 +182,12 @@ pub const TestRunner = struct {
             std.debug.print("afterAll hook failed: {any}\n", .{err});
         };
 
-        try rep.onSuiteEnd(test_suite.name);
+        try events.emit(.{ .suite_finished = test_suite.name });
     }
 
     /// Run a single test
-    fn runTest(self: *Self, test_case: *suite.TestCase, test_suite: *suite.TestSuite, rep: *reporter_mod.Reporter) !void {
-        try rep.onTestStart(test_case.name);
+    fn runTest(self: *Self, test_case: *suite.TestCase, test_suite: *suite.TestSuite, events: pipeline.EventStream) !void {
+        try events.emit(.{ .test_started = test_case.name });
 
         test_case.status = .running;
         const start_time = compat.nanoTimestamp();
@@ -240,21 +234,38 @@ pub const TestRunner = struct {
 
         const end_time = compat.nanoTimestamp();
         test_case.execution_time_ns = @intCast(end_time - start_time);
+        if (test_case.status == .passed and self.policy().timedOut(test_case.execution_time_ns)) {
+            test_case.status = .failed;
+            test_case.error_message = try std.fmt.allocPrint(
+                self.allocator,
+                "Test exceeded timeout of {d}ms",
+                .{self.options.timeout_ms.?},
+            );
+        }
 
         try self.results.addTest(test_case);
-        try rep.onTestEnd(test_case);
+        try events.emit(.{ .test_finished = test_case });
     }
 
     /// Skip all tests in a suite
-    fn skipAllTests(self: *Self, test_suite: *suite.TestSuite) !void {
+    fn skipAllTests(self: *Self, test_suite: *suite.TestSuite, events: pipeline.EventStream) !void {
         for (test_suite.tests.items) |*test_case| {
             test_case.status = .skipped;
             try self.results.addTest(test_case);
+            try events.emit(.{ .test_finished = test_case });
         }
 
         for (test_suite.suites.items) |nested_suite| {
-            try self.skipAllTests(nested_suite);
+            try self.skipAllTests(nested_suite, events);
         }
+    }
+
+    fn policy(self: *const Self) pipeline.ExecutionPolicy {
+        return .{
+            .bail = self.options.bail,
+            .filter = self.options.filter,
+            .timeout_ms = self.options.timeout_ms,
+        };
     }
 };
 
@@ -290,6 +301,7 @@ test "RunnerOptions default values" {
     try std.testing.expectEqual(@as(?[]const u8, null), options.filter);
     try std.testing.expectEqual(ReporterType.spec, options.reporter_type);
     try std.testing.expectEqual(true, options.use_colors);
+    try std.testing.expectEqual(@as(?u64, null), options.timeout_ms);
 }
 
 test "RunnerOptions custom values" {

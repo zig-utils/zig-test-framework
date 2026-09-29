@@ -2,6 +2,14 @@ const std = @import("std");
 const suite = @import("suite.zig");
 const compat = @import("compat.zig");
 
+pub const ReporterType = enum {
+    spec,
+    dot,
+    json,
+    tap,
+    junit,
+};
+
 /// ANSI color codes
 pub const Colors = struct {
     pub const reset = "\x1b[0m";
@@ -101,6 +109,7 @@ pub const SpecReporter = struct {
     reporter: Reporter,
     indent_level: usize = 0,
     writer: std.Io.Writer,
+    writer_ref: ?*std.Io.Writer = null,
 
     const Self = @This();
 
@@ -112,6 +121,16 @@ pub const SpecReporter = struct {
             },
             .writer = writer,
         };
+    }
+
+    pub fn initRef(allocator: std.mem.Allocator, writer: *std.Io.Writer) Self {
+        var result = init(allocator, writer.*);
+        result.writer_ref = writer;
+        return result;
+    }
+
+    fn output(instance: *Self) *std.Io.Writer {
+        return instance.writer_ref orelse &instance.writer;
     }
 
     const vtable = Reporter.VTable{
@@ -129,64 +148,64 @@ pub const SpecReporter = struct {
 
     fn onRunStart(reporter: *Reporter, total_tests: usize) !void {
         const s = self(reporter);
-        try s.writer.print("\n", .{});
+        try s.output().print("\n", .{});
         if (reporter.use_colors) {
-            try s.writer.print("{s}Running {d} test(s)...{s}\n\n", .{ Colors.bold, total_tests, Colors.reset });
+            try s.output().print("{s}Running {d} test(s)...{s}\n\n", .{ Colors.bold, total_tests, Colors.reset });
         } else {
-            try s.writer.print("Running {d} test(s)...\n\n", .{total_tests});
+            try s.output().print("Running {d} test(s)...\n\n", .{total_tests});
         }
     }
 
     fn onRunEnd(reporter: *Reporter, results: *TestResults) !void {
         const s = self(reporter);
-        try s.writer.print("\n", .{});
+        try s.output().print("\n", .{});
 
         // Print failed tests details
         if (results.failed > 0) {
             if (reporter.use_colors) {
-                try s.writer.print("{s}Failed Tests:{s}\n\n", .{ Colors.bold ++ Colors.red, Colors.reset });
+                try s.output().print("{s}Failed Tests:{s}\n\n", .{ Colors.bold ++ Colors.red, Colors.reset });
             } else {
-                try s.writer.print("Failed Tests:\n\n", .{});
+                try s.output().print("Failed Tests:\n\n", .{});
             }
 
             for (results.failed_tests.items) |test_case| {
                 if (reporter.use_colors) {
-                    try s.writer.print("  {s}✗{s} {s}\n", .{ Colors.red, Colors.reset, test_case.name });
+                    try s.output().print("  {s}✗{s} {s}\n", .{ Colors.red, Colors.reset, test_case.name });
                 } else {
-                    try s.writer.print("  ✗ {s}\n", .{test_case.name});
+                    try s.output().print("  ✗ {s}\n", .{test_case.name});
                 }
                 if (test_case.error_message) |msg| {
-                    try s.writer.print("    {s}\n", .{msg});
+                    try s.output().print("    {s}\n", .{msg});
                 }
             }
-            try s.writer.print("\n", .{});
+            try s.output().print("\n", .{});
         }
 
         // Print summary
         const total_time_ms = @as(f64, @floatFromInt(results.total_time_ns)) / 1_000_000.0;
 
         if (reporter.use_colors) {
-            try s.writer.print("{s}Test Summary:{s}\n", .{ Colors.bold, Colors.reset });
-            try s.writer.print("  Total:   {d}\n", .{results.total});
-            try s.writer.print("  {s}Passed:  {d}{s}\n", .{ Colors.green, results.passed, Colors.reset });
+            try s.output().print("{s}Test Summary:{s}\n", .{ Colors.bold, Colors.reset });
+            try s.output().print("  Total:   {d}\n", .{results.total});
+            try s.output().print("  {s}Passed:  {d}{s}\n", .{ Colors.green, results.passed, Colors.reset });
             if (results.failed > 0) {
-                try s.writer.print("  {s}Failed:  {d}{s}\n", .{ Colors.red, results.failed, Colors.reset });
+                try s.output().print("  {s}Failed:  {d}{s}\n", .{ Colors.red, results.failed, Colors.reset });
             }
             if (results.skipped > 0) {
-                try s.writer.print("  {s}Skipped: {d}{s}\n", .{ Colors.yellow, results.skipped, Colors.reset });
+                try s.output().print("  {s}Skipped: {d}{s}\n", .{ Colors.yellow, results.skipped, Colors.reset });
             }
-            try s.writer.print("  Time:    {d:.2}ms\n", .{total_time_ms});
+            try s.output().print("  Time:    {d:.2}ms\n", .{total_time_ms});
         } else {
-            try s.writer.print("Test Summary:\n", .{});
-            try s.writer.print("  Total:   {d}\n", .{results.total});
-            try s.writer.print("  Passed:  {d}\n", .{results.passed});
+            try s.output().print("Test Summary:\n", .{});
+            try s.output().print("  Total:   {d}\n", .{results.total});
+            try s.output().print("  Passed:  {d}\n", .{results.passed});
             if (results.failed > 0) {
-                try s.writer.print("  Failed:  {d}\n", .{results.failed});
+                try s.output().print("  Failed:  {d}\n", .{results.failed});
             }
             if (results.skipped > 0) {
-                try s.writer.print("  Skipped: {d}\n", .{results.skipped});
+                try s.output().print("  Skipped: {d}\n", .{results.skipped});
             }
-            try s.writer.print("  Time:    {d:.2}ms\n", .{total_time_ms});
+            try s.output().print("  Time:    {d:.2}ms\n", .{total_time_ms});
         }
     }
 
@@ -196,13 +215,13 @@ pub const SpecReporter = struct {
         // Print indent
         var i: usize = 0;
         while (i < s.indent_level) : (i += 1) {
-            try s.writer.print("  ", .{});
+            try s.output().print("  ", .{});
         }
 
         if (reporter.use_colors) {
-            try s.writer.print("{s}{s}{s}\n", .{ Colors.bold, suite_name, Colors.reset });
+            try s.output().print("{s}{s}{s}\n", .{ Colors.bold, suite_name, Colors.reset });
         } else {
-            try s.writer.print("{s}\n", .{suite_name});
+            try s.output().print("{s}\n", .{suite_name});
         }
         s.indent_level += 1;
     }
@@ -226,7 +245,7 @@ pub const SpecReporter = struct {
         // Print indent
         var i: usize = 0;
         while (i < s.indent_level) : (i += 1) {
-            try s.writer.print("  ", .{});
+            try s.output().print("  ", .{});
         }
 
         const time_ms = @as(f64, @floatFromInt(test_case.execution_time_ns)) / 1_000_000.0;
@@ -234,7 +253,7 @@ pub const SpecReporter = struct {
         switch (test_case.status) {
             .passed => {
                 if (reporter.use_colors) {
-                    try s.writer.print("{s}✓{s} {s} {s}({d:.2}ms){s}\n", .{
+                    try s.output().print("{s}✓{s} {s} {s}({d:.2}ms){s}\n", .{
                         Colors.green,
                         Colors.reset,
                         test_case.name,
@@ -243,12 +262,12 @@ pub const SpecReporter = struct {
                         Colors.reset,
                     });
                 } else {
-                    try s.writer.print("✓ {s} ({d:.2}ms)\n", .{ test_case.name, time_ms });
+                    try s.output().print("✓ {s} ({d:.2}ms)\n", .{ test_case.name, time_ms });
                 }
             },
             .failed => {
                 if (reporter.use_colors) {
-                    try s.writer.print("{s}✗{s} {s} {s}({d:.2}ms){s}\n", .{
+                    try s.output().print("{s}✗{s} {s} {s}({d:.2}ms){s}\n", .{
                         Colors.red,
                         Colors.reset,
                         test_case.name,
@@ -257,12 +276,12 @@ pub const SpecReporter = struct {
                         Colors.reset,
                     });
                 } else {
-                    try s.writer.print("✗ {s} ({d:.2}ms)\n", .{ test_case.name, time_ms });
+                    try s.output().print("✗ {s} ({d:.2}ms)\n", .{ test_case.name, time_ms });
                 }
             },
             .skipped => {
                 if (reporter.use_colors) {
-                    try s.writer.print("{s}⊘{s} {s} {s}(skipped){s}\n", .{
+                    try s.output().print("{s}⊘{s} {s} {s}(skipped){s}\n", .{
                         Colors.yellow,
                         Colors.reset,
                         test_case.name,
@@ -270,7 +289,7 @@ pub const SpecReporter = struct {
                         Colors.reset,
                     });
                 } else {
-                    try s.writer.print("⊘ {s} (skipped)\n", .{test_case.name});
+                    try s.output().print("⊘ {s} (skipped)\n", .{test_case.name});
                 }
             },
             else => {},
@@ -282,6 +301,7 @@ pub const SpecReporter = struct {
 pub const DotReporter = struct {
     reporter: Reporter,
     writer: std.Io.Writer,
+    writer_ref: ?*std.Io.Writer = null,
     tests_per_line: usize = 80,
     current_line_count: usize = 0,
 
@@ -295,6 +315,16 @@ pub const DotReporter = struct {
             },
             .writer = writer,
         };
+    }
+
+    pub fn initRef(allocator: std.mem.Allocator, writer: *std.Io.Writer) Self {
+        var result = init(allocator, writer.*);
+        result.writer_ref = writer;
+        return result;
+    }
+
+    fn output(instance: *Self) *std.Io.Writer {
+        return instance.writer_ref orelse &instance.writer;
     }
 
     const vtable = Reporter.VTable{
@@ -312,21 +342,21 @@ pub const DotReporter = struct {
 
     fn onRunStart(reporter: *Reporter, total_tests: usize) !void {
         const s = self(reporter);
-        try s.writer.print("\nRunning {d} tests:\n", .{total_tests});
+        try s.output().print("\nRunning {d} tests:\n", .{total_tests});
     }
 
     fn onRunEnd(reporter: *Reporter, results: *TestResults) !void {
         const s = self(reporter);
-        try s.writer.print("\n\n", .{});
+        try s.output().print("\n\n", .{});
 
         const total_time_ms = @as(f64, @floatFromInt(results.total_time_ns)) / 1_000_000.0;
 
         if (reporter.use_colors) {
-            try s.writer.print("{s}Passed: {d}{s}, ", .{ Colors.green, results.passed, Colors.reset });
-            try s.writer.print("{s}Failed: {d}{s}, ", .{ Colors.red, results.failed, Colors.reset });
-            try s.writer.print("Total: {d} ({d:.2}ms)\n", .{ results.total, total_time_ms });
+            try s.output().print("{s}Passed: {d}{s}, ", .{ Colors.green, results.passed, Colors.reset });
+            try s.output().print("{s}Failed: {d}{s}, ", .{ Colors.red, results.failed, Colors.reset });
+            try s.output().print("Total: {d} ({d:.2}ms)\n", .{ results.total, total_time_ms });
         } else {
-            try s.writer.print("Passed: {d}, Failed: {d}, Total: {d} ({d:.2}ms)\n", .{
+            try s.output().print("Passed: {d}, Failed: {d}, Total: {d} ({d:.2}ms)\n", .{
                 results.passed,
                 results.failed,
                 results.total,
@@ -356,23 +386,23 @@ pub const DotReporter = struct {
         switch (test_case.status) {
             .passed => {
                 if (reporter.use_colors) {
-                    try s.writer.print("{s}.{s}", .{ Colors.green, Colors.reset });
+                    try s.output().print("{s}.{s}", .{ Colors.green, Colors.reset });
                 } else {
-                    try s.writer.print(".", .{});
+                    try s.output().print(".", .{});
                 }
             },
             .failed => {
                 if (reporter.use_colors) {
-                    try s.writer.print("{s}F{s}", .{ Colors.red, Colors.reset });
+                    try s.output().print("{s}F{s}", .{ Colors.red, Colors.reset });
                 } else {
-                    try s.writer.print("F", .{});
+                    try s.output().print("F", .{});
                 }
             },
             .skipped => {
                 if (reporter.use_colors) {
-                    try s.writer.print("{s}S{s}", .{ Colors.yellow, Colors.reset });
+                    try s.output().print("{s}S{s}", .{ Colors.yellow, Colors.reset });
                 } else {
-                    try s.writer.print("S", .{});
+                    try s.output().print("S", .{});
                 }
             },
             else => {},
@@ -380,7 +410,7 @@ pub const DotReporter = struct {
 
         s.current_line_count += 1;
         if (s.current_line_count >= s.tests_per_line) {
-            try s.writer.print("\n", .{});
+            try s.output().print("\n", .{});
             s.current_line_count = 0;
         }
     }
@@ -390,6 +420,7 @@ pub const DotReporter = struct {
 pub const JsonReporter = struct {
     reporter: Reporter,
     writer: std.Io.Writer,
+    writer_ref: ?*std.Io.Writer = null,
     suites: std.ArrayList([]const u8),
 
     const Self = @This();
@@ -403,6 +434,16 @@ pub const JsonReporter = struct {
             .writer = writer,
             .suites = .empty,
         };
+    }
+
+    pub fn initRef(allocator: std.mem.Allocator, writer: *std.Io.Writer) Self {
+        var result = init(allocator, writer.*);
+        result.writer_ref = writer;
+        return result;
+    }
+
+    fn output(instance: *Self) *std.Io.Writer {
+        return instance.writer_ref orelse &instance.writer;
     }
 
     pub fn deinit(s: *Self) void {
@@ -424,14 +465,14 @@ pub const JsonReporter = struct {
 
     fn onRunStart(reporter: *Reporter, total_tests: usize) !void {
         const s = self(reporter);
-        try s.writer.print("{{\"totalTests\":{d},\"tests\":[\n", .{total_tests});
+        try s.output().print("{{\"totalTests\":{d},\"tests\":[\n", .{total_tests});
     }
 
     fn onRunEnd(reporter: *Reporter, results: *TestResults) !void {
         const s = self(reporter);
         const total_time_ms = @as(f64, @floatFromInt(results.total_time_ns)) / 1_000_000.0;
 
-        try s.writer.print("],\"summary\":{{\"total\":{d},\"passed\":{d},\"failed\":{d},\"skipped\":{d},\"time\":{d:.2}}}}}\n", .{
+        try s.output().print("],\"summary\":{{\"total\":{d},\"passed\":{d},\"failed\":{d},\"skipped\":{d},\"time\":{d:.2}}}}}\n", .{
             results.total,
             results.passed,
             results.failed,
@@ -470,17 +511,17 @@ pub const JsonReporter = struct {
         };
 
         // Note: In a real implementation, you'd want to properly escape JSON strings
-        try s.writer.print("  {{\"name\":\"{s}\",\"status\":\"{s}\",\"time\":{d:.2}", .{
+        try s.output().print("  {{\"name\":\"{s}\",\"status\":\"{s}\",\"time\":{d:.2}", .{
             test_case.name,
             status_str,
             time_ms,
         });
 
         if (test_case.error_message) |msg| {
-            try s.writer.print(",\"error\":\"{s}\"", .{msg});
+            try s.output().print(",\"error\":\"{s}\"", .{msg});
         }
 
-        try s.writer.print("}},\n", .{});
+        try s.output().print("}},\n", .{});
     }
 };
 
@@ -488,6 +529,7 @@ pub const JsonReporter = struct {
 pub const TAPReporter = struct {
     reporter: Reporter,
     writer: std.Io.Writer,
+    writer_ref: ?*std.Io.Writer = null,
     test_count: usize = 0,
 
     const Self = @This();
@@ -510,9 +552,19 @@ pub const TAPReporter = struct {
         };
     }
 
+    pub fn initRef(allocator: std.mem.Allocator, writer: *std.Io.Writer) Self {
+        var result = init(allocator, writer.*);
+        result.writer_ref = writer;
+        return result;
+    }
+
+    fn output(instance: *Self) *std.Io.Writer {
+        return instance.writer_ref orelse &instance.writer;
+    }
+
     fn onRunStart(reporter: *Reporter, total: usize) !void {
         const self: *Self = @fieldParentPtr("reporter", reporter);
-        try self.writer.print("TAP version 14\n1..{d}\n", .{total});
+        try self.output().print("TAP version 14\n1..{d}\n", .{total});
     }
 
     fn onRunEnd(reporter: *Reporter, results: *TestResults) !void {
@@ -522,7 +574,7 @@ pub const TAPReporter = struct {
 
     fn onSuiteStart(reporter: *Reporter, suite_name: []const u8) !void {
         const self: *Self = @fieldParentPtr("reporter", reporter);
-        try self.writer.print("# Subtest: {s}\n", .{suite_name});
+        try self.output().print("# Subtest: {s}\n", .{suite_name});
     }
 
     fn onSuiteEnd(reporter: *Reporter, suite_name: []const u8) !void {
@@ -546,14 +598,14 @@ pub const TAPReporter = struct {
             else => "not ok",
         };
 
-        try self.writer.print("{s} {d} - {s}", .{ status, self.test_count, test_case.name });
+        try self.output().print("{s} {d} - {s}", .{ status, self.test_count, test_case.name });
 
         if (test_case.status == .skipped) {
-            try self.writer.print(" # SKIP\n", .{});
+            try self.output().print(" # SKIP\n", .{});
         } else if (test_case.status == .failed and test_case.error_message != null) {
-            try self.writer.print("\n  ---\n  message: {s}\n  ...\n", .{test_case.error_message.?});
+            try self.output().print("\n  ---\n  message: {s}\n  ...\n", .{test_case.error_message.?});
         } else {
-            try self.writer.print("\n", .{});
+            try self.output().print("\n", .{});
         }
     }
 };
@@ -732,6 +784,80 @@ pub const JUnitReporter = struct {
         try buffer.appendSlice(self.allocator, "</testsuites>\n");
 
         try compat.writeFile(self.allocator, self.output_file, buffer.items);
+    }
+};
+
+/// Owns every built-in reporter and selects one through a shared interface.
+/// Keeping construction here lets every executor expose identical reporters.
+pub const ReporterSet = struct {
+    kind: ReporterType,
+    spec: SpecReporter,
+    dot: DotReporter,
+    json: JsonReporter,
+    tap: TAPReporter,
+    junit: JUnitReporter,
+
+    pub fn init(
+        allocator: std.mem.Allocator,
+        writer: std.Io.Writer,
+        kind: ReporterType,
+        junit_output: []const u8,
+        use_colors: bool,
+    ) ReporterSet {
+        var reporters = ReporterSet{
+            .kind = kind,
+            .spec = SpecReporter.init(allocator, writer),
+            .dot = DotReporter.init(allocator, writer),
+            .json = JsonReporter.init(allocator, writer),
+            .tap = TAPReporter.init(allocator, writer),
+            .junit = JUnitReporter.init(allocator, junit_output),
+        };
+        reporters.selected().use_colors = use_colors;
+        return reporters;
+    }
+
+    pub fn initRef(
+        allocator: std.mem.Allocator,
+        writer: *std.Io.Writer,
+        kind: ReporterType,
+        junit_output: []const u8,
+        use_colors: bool,
+    ) ReporterSet {
+        var reporters = ReporterSet{
+            .kind = kind,
+            .spec = SpecReporter.initRef(allocator, writer),
+            .dot = DotReporter.initRef(allocator, writer),
+            .json = JsonReporter.initRef(allocator, writer),
+            .tap = TAPReporter.initRef(allocator, writer),
+            .junit = JUnitReporter.init(allocator, junit_output),
+        };
+        reporters.selected().use_colors = use_colors;
+        return reporters;
+    }
+
+    pub fn deinit(self: *ReporterSet) void {
+        self.json.deinit();
+        self.junit.deinit();
+    }
+
+    pub fn selected(self: *ReporterSet) *Reporter {
+        return switch (self.kind) {
+            .spec => &self.spec.reporter,
+            .dot => &self.dot.reporter,
+            .json => &self.json.reporter,
+            .tap => &self.tap.reporter,
+            .junit => &self.junit.reporter,
+        };
+    }
+
+    pub fn flush(self: *ReporterSet) !void {
+        switch (self.kind) {
+            .spec => try self.spec.output().flush(),
+            .dot => try self.dot.output().flush(),
+            .json => try self.json.output().flush(),
+            .tap => try self.tap.output().flush(),
+            .junit => {},
+        }
     }
 };
 

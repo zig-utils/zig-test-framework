@@ -5,6 +5,7 @@ pub const assertions = @import("assertions.zig");
 pub const suite = @import("suite.zig");
 pub const test_runner = @import("test_runner.zig");
 pub const reporter = @import("reporter.zig");
+pub const pipeline = @import("pipeline.zig");
 pub const matchers = @import("matchers.zig");
 pub const mock = @import("mock.zig");
 pub const cli = @import("cli.zig");
@@ -79,6 +80,15 @@ pub const JsonReporter = reporter.JsonReporter;
 pub const TAPReporter = reporter.TAPReporter;
 pub const JUnitReporter = reporter.JUnitReporter;
 pub const Colors = reporter.Colors;
+pub const ReporterSet = reporter.ReporterSet;
+
+// Unified execution pipeline
+pub const TestPlan = pipeline.TestPlan;
+pub const PlanItem = pipeline.PlanItem;
+pub const PlanOrigin = pipeline.PlanOrigin;
+pub const ExecutionPolicy = pipeline.ExecutionPolicy;
+pub const LifecycleEvent = pipeline.LifecycleEvent;
+pub const EventStream = pipeline.EventStream;
 
 // Matchers
 pub const Matchers = matchers.Matchers;

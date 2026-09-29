@@ -1,6 +1,7 @@
 const std = @import("std");
 const suite = @import("suite.zig");
 const reporter = @import("reporter.zig");
+const pipeline = @import("pipeline.zig");
 const compat = @import("compat.zig");
 
 /// Options for bounded parallel test execution.
@@ -10,6 +11,7 @@ pub const ParallelOptions = struct {
     n_jobs: ?usize = null,
     enabled: bool = false,
     filter: ?[]const u8 = null,
+    timeout_ms: ?u64 = null,
 };
 
 pub const ParallelError = error{
@@ -31,6 +33,7 @@ const WorkerContext = struct {
     tests: []const *suite.TestCase,
     next_index: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
     error_mutex: compat.Mutex = .{},
+    policy: pipeline.ExecutionPolicy,
 
     fn worker(self: *WorkerContext) void {
         while (true) {
@@ -90,8 +93,15 @@ const WorkerContext = struct {
         test_case.error_message = std.fmt.allocPrint(self.allocator, format, args) catch "Out of memory";
     }
 
-    fn finishTiming(_: *WorkerContext, test_case: *suite.TestCase, start_time: i128) void {
+    fn finishTiming(self: *WorkerContext, test_case: *suite.TestCase, start_time: i128) void {
         test_case.execution_time_ns = @intCast(compat.nanoTimestamp() - start_time);
+        if (test_case.status == .passed and self.policy.timedOut(test_case.execution_time_ns)) {
+            self.fail(
+                test_case,
+                "Test exceeded timeout of {d}ms",
+                .{self.policy.timeout_ms.?},
+            );
+        }
     }
 };
 
@@ -167,6 +177,10 @@ const RunContext = struct {
             .allocator = self.allocator,
             .test_suite = test_suite,
             .tests = tests,
+            .policy = .{
+                .filter = self.options.filter,
+                .timeout_ms = self.options.timeout_ms,
+            },
         };
         const count = @min(self.worker_limit, tests.len);
         var threads: std.ArrayList(std.Thread) = .empty;
