@@ -328,7 +328,8 @@ We follow [Semantic Versioning](https://semver.org/):
 
 ### Release Steps
 
-1. Update version in `build.zig.zon`
+1. Update version in `build.zig.zon`. This is the authoritative package
+   version; the build injects it into `zig-test --version` automatically.
 2. Update CHANGELOG.md
 3. Create git tag: `git tag -a v1.2.3 -m "Release 1.2.3"`
 4. Push tag: `git push origin v1.2.3`
