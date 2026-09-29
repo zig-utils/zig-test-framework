@@ -11,7 +11,7 @@ pub fn example_basic_spinner() !void {
     defer spinner.deinit();
 
     try spinner.start();
-    std.Thread.sleep(2000 * std.time.ns_per_ms);
+    zig_test.compat.sleep(2000 * std.time.ns_per_ms);
     spinner.succeed("Data loaded successfully");
 }
 
@@ -40,7 +40,7 @@ pub fn example_spinner_styles() !void {
         defer spinner.deinit();
 
         try spinner.start();
-        std.Thread.sleep(1000 * std.time.ns_per_ms);
+        zig_test.compat.sleep(1000 * std.time.ns_per_ms);
         spinner.succeed(try std.fmt.allocPrint(allocator, "{s} style complete", .{style_name}));
         allocator.free(try std.fmt.allocPrint(allocator, "{s} style complete", .{style_name}));
     }
@@ -56,28 +56,28 @@ pub fn example_spinner_outcomes() !void {
     var spinner1 = try zig_test.Spinner.init(allocator, "Operation 1...", .dots);
     defer spinner1.deinit();
     try spinner1.start();
-    std.Thread.sleep(500 * std.time.ns_per_ms);
+    zig_test.compat.sleep(500 * std.time.ns_per_ms);
     spinner1.succeed("Operation 1 succeeded");
 
     // Failure
     var spinner2 = try zig_test.Spinner.init(allocator, "Operation 2...", .dots);
     defer spinner2.deinit();
     try spinner2.start();
-    std.Thread.sleep(500 * std.time.ns_per_ms);
+    zig_test.compat.sleep(500 * std.time.ns_per_ms);
     spinner2.fail("Operation 2 failed");
 
     // Warning
     var spinner3 = try zig_test.Spinner.init(allocator, "Operation 3...", .dots);
     defer spinner3.deinit();
     try spinner3.start();
-    std.Thread.sleep(500 * std.time.ns_per_ms);
+    zig_test.compat.sleep(500 * std.time.ns_per_ms);
     spinner3.warn("Operation 3 has warnings");
 
     // Info
     var spinner4 = try zig_test.Spinner.init(allocator, "Operation 4...", .dots);
     defer spinner4.deinit();
     try spinner4.start();
-    std.Thread.sleep(500 * std.time.ns_per_ms);
+    zig_test.compat.sleep(500 * std.time.ns_per_ms);
     spinner4.info("Operation 4 information");
 }
 
@@ -96,7 +96,7 @@ pub fn example_basic_progress_bar() !void {
     var i: usize = 0;
     while (i <= 100) : (i += 5) {
         bar.update(i);
-        std.Thread.sleep(100 * std.time.ns_per_ms);
+        zig_test.compat.sleep(100 * std.time.ns_per_ms);
     }
     bar.finish();
 }
@@ -129,7 +129,7 @@ pub fn example_progress_bar_styles() !void {
         var i: usize = 0;
         while (i <= 50) : (i += 5) {
             bar.update(i);
-            std.Thread.sleep(50 * std.time.ns_per_ms);
+            zig_test.compat.sleep(50 * std.time.ns_per_ms);
         }
         bar.finish();
     }
@@ -151,7 +151,7 @@ pub fn example_progress_bar_options() !void {
     var i: usize = 0;
     while (i <= 50) : (i += 10) {
         bar1.update(i);
-        std.Thread.sleep(100 * std.time.ns_per_ms);
+        zig_test.compat.sleep(100 * std.time.ns_per_ms);
     }
     bar1.finish();
 
@@ -165,7 +165,7 @@ pub fn example_progress_bar_options() !void {
     i = 0;
     while (i <= 50) : (i += 10) {
         bar2.update(i);
-        std.Thread.sleep(100 * std.time.ns_per_ms);
+        zig_test.compat.sleep(100 * std.time.ns_per_ms);
     }
     bar2.finish();
 
@@ -180,7 +180,7 @@ pub fn example_progress_bar_options() !void {
     i = 0;
     while (i <= 50) : (i += 10) {
         bar3.update(i);
-        std.Thread.sleep(100 * std.time.ns_per_ms);
+        zig_test.compat.sleep(100 * std.time.ns_per_ms);
     }
     bar3.finish();
 }
@@ -213,7 +213,7 @@ pub fn example_test_progress() !void {
 
     for (test_names, 0..) |name, i| {
         try progress.startTest(name);
-        std.Thread.sleep(200 * std.time.ns_per_ms);
+        zig_test.compat.sleep(200 * std.time.ns_per_ms);
 
         // Simulate different outcomes
         const passed = i != 3; // Fail the 4th test
@@ -242,7 +242,7 @@ pub fn example_test_progress_minimal() !void {
         defer allocator.free(name);
 
         try progress.startTest(name);
-        std.Thread.sleep(100 * std.time.ns_per_ms);
+        zig_test.compat.sleep(100 * std.time.ns_per_ms);
         progress.completeTest(true, false);
     }
 
@@ -263,14 +263,14 @@ pub fn example_multi_spinner() !void {
     try multi.add("task2", "Processing task 2...");
     try multi.add("task3", "Processing task 3...");
 
-    std.Thread.sleep(1000 * std.time.ns_per_ms);
+    zig_test.compat.sleep(1000 * std.time.ns_per_ms);
 
     // Complete tasks at different times
     multi.succeed("task1", "Task 1 complete");
-    std.Thread.sleep(500 * std.time.ns_per_ms);
+    zig_test.compat.sleep(500 * std.time.ns_per_ms);
 
     multi.fail("task2", "Task 2 failed");
-    std.Thread.sleep(500 * std.time.ns_per_ms);
+    zig_test.compat.sleep(500 * std.time.ns_per_ms);
 
     multi.succeed("task3", "Task 3 complete");
 }
@@ -289,7 +289,7 @@ pub fn example_progress_increment() !void {
     var i: usize = 0;
     while (i < 20) : (i += 1) {
         bar.increment();
-        std.Thread.sleep(100 * std.time.ns_per_ms);
+        zig_test.compat.sleep(100 * std.time.ns_per_ms);
     }
     bar.finish();
 }
@@ -304,13 +304,13 @@ pub fn example_spinner_update() !void {
     defer spinner.deinit();
 
     try spinner.start();
-    std.Thread.sleep(1000 * std.time.ns_per_ms);
+    zig_test.compat.sleep(1000 * std.time.ns_per_ms);
 
     try spinner.updateMessage("Step 2: Processing data...");
-    std.Thread.sleep(1000 * std.time.ns_per_ms);
+    zig_test.compat.sleep(1000 * std.time.ns_per_ms);
 
     try spinner.updateMessage("Step 3: Finalizing...");
-    std.Thread.sleep(1000 * std.time.ns_per_ms);
+    zig_test.compat.sleep(1000 * std.time.ns_per_ms);
 
     spinner.succeed("All steps completed");
 }
@@ -325,7 +325,7 @@ pub fn example_combined_progress() !void {
     var spinner = try zig_test.Spinner.init(allocator, "Starting batch process...", .dots);
     defer spinner.deinit();
     try spinner.start();
-    std.Thread.sleep(500 * std.time.ns_per_ms);
+    zig_test.compat.sleep(500 * std.time.ns_per_ms);
     spinner.stop();
 
     // Use progress bar for sub-tasks
@@ -337,7 +337,7 @@ pub fn example_combined_progress() !void {
     var i: usize = 0;
     while (i <= 100) : (i += 10) {
         bar.update(i);
-        std.Thread.sleep(200 * std.time.ns_per_ms);
+        zig_test.compat.sleep(200 * std.time.ns_per_ms);
     }
     bar.finish();
 
@@ -345,7 +345,7 @@ pub fn example_combined_progress() !void {
     var final_spinner = try zig_test.Spinner.init(allocator, "Completing...", .dots);
     defer final_spinner.deinit();
     try final_spinner.start();
-    std.Thread.sleep(500 * std.time.ns_per_ms);
+    zig_test.compat.sleep(500 * std.time.ns_per_ms);
     final_spinner.succeed("Batch process completed successfully");
 }
 

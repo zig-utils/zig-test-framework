@@ -172,6 +172,20 @@ pub fn deleteFile(allocator: std.mem.Allocator, path: []const u8) !void {
     }
 }
 
+/// Delete an empty directory using POSIX APIs.
+/// Replaces std.fs.cwd().deleteDir().
+pub fn deleteDir(allocator: std.mem.Allocator, path: []const u8) !void {
+    const path_z = try allocator.dupeSentinel(u8, path, 0);
+    defer allocator.free(path_z);
+    const rc = std.c.rmdir(path_z);
+    if (rc != 0) {
+        switch (std.c.errno(rc)) {
+            .NOENT => return error.FileNotFound,
+            else => return error.Unexpected,
+        }
+    }
+}
+
 /// Create directories recursively using POSIX APIs.
 /// Replaces std.fs.cwd().makePath().
 pub fn makePath(allocator: std.mem.Allocator, path: []const u8) !void {
