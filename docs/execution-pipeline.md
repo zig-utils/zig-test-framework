@@ -26,10 +26,14 @@ reporters, including the configured JUnit output path.
 - Registered tests match filters directly by test name. Discovery forwards the
   same filter to `zig test`, where Zig applies it to names inside each file.
 - Bail stops scheduling after the shared result model records a failure. Work
-  already started by a parallel batch cannot be cancelled.
+  already started by a parallel batch cannot be cancelled. With retries, bail
+  is evaluated only after the retry budget is exhausted.
 - A global timeout compares elapsed execution time with the same policy in both
-  executors. It marks an over-budget result failed after control returns; it
-  does not yet terminate an in-process function or external child process.
+  executors on every attempt. It marks an over-budget attempt failed after
+  control returns; it does not yet terminate an in-process function or external
+  child process.
+- Every logical result owns ordered attempt history. A failure followed by a
+  successful retry is classified as `flaky`, distinct from an ordinary pass.
 - Summaries always come from `TestResults`, rather than executor-local counters.
 
 ## Extension points
@@ -48,10 +52,11 @@ depend on one serialization format.
 Existing programmatic APIs remain source compatible:
 
 - `TestRunner.init`, `runTests`, and `runTestsWithOptions` are unchanged.
-- `RunnerOptions` only gains optional `junit_output`, `timeout_ms`, and
-  `reporter_writer` fields.
+- `RunnerOptions` gains optional reporter, timeout, retry, repeat, and flaky-exit
+  fields with backward-compatible defaults.
 - `runDiscoveredTests` and `LoaderOptions` remain available; optional reporter,
-  JUnit path, timeout, and writer fields default to the previous spec behavior.
+  JUnit path, timeout, retry, repeat, flaky-exit, and writer fields default to
+  the previous spec behavior.
 
 CLI hosts can inject a stdout writer with `reporter_writer`. Embedded callers
 may leave it unset; reporter output then uses stderr so it cannot corrupt Zig's

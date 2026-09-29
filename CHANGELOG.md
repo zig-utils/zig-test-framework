@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Retry failed tests and discovered test files with complete attempt history.
+- Repeat mode for stress-running selected tests.
+- Flaky outcomes, optional fail-on-flaky exit behavior, and JSON/JUnit attempt data.
+
 ### Planned Features
 
 - Snapshot testing
