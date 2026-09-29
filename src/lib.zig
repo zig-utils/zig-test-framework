@@ -161,6 +161,7 @@ pub const ProfileOptions = memory_profiler.ProfileOptions;
 pub const TestConfig = config.TestConfig;
 pub const ConfigLoader = config.ConfigLoader;
 pub const ConfigFormat = config.ConfigFormat;
+pub const ConfigError = config.ConfigError;
 
 // Async Support
 pub const Future = async_support.Future;

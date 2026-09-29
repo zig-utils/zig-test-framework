@@ -1,309 +1,134 @@
 const std = @import("std");
 const compat = @import("compat.zig");
 
-/// Configuration file format
-pub const ConfigFormat = enum {
-    json,
-    toml, // Future support
-};
+/// JSON is the only configuration format currently supported by the CLI.
+pub const ConfigFormat = enum { json };
 
-/// Test framework configuration
+/// Configuration values mirror options that the current execution paths can
+/// actually honor. Defaults intentionally match `CLIOptions`.
 pub const TestConfig = struct {
-    // Test discovery options
     test_options: TestOptions = .{},
-
-    /// Parallel execution options
     parallel: ParallelOptions = .{},
-
-    /// Reporter options
     reporter: ReporterOptions = .{},
-
-    /// Snapshot testing options
     snapshot: SnapshotOptions = .{},
-
-    /// Watch mode options
     watch: WatchOptions = .{},
-
-    /// Memory profiling options
     memory: MemoryOptions = .{},
-
-    /// UI server options
     ui: UIOptions = .{},
-
-    /// Coverage options
     coverage: CoverageOptions = .{},
 };
 
 pub const TestOptions = struct {
-    /// Test file pattern
     pattern: []const u8 = "*.test.zig",
-    /// Test directory
-    test_dir: []const u8 = "src",
-    /// Recursive search
+    test_dir: []const u8 = ".",
     recursive: bool = true,
-    /// Filter tests by name
     filter: ?[]const u8 = null,
-    /// Timeout per test in milliseconds
-    timeout: u64 = 5000,
+    timeout: ?u64 = null,
 };
 
 pub const ParallelOptions = struct {
-    /// Enable parallel execution
     enabled: bool = false,
-    /// Number of worker threads (0 = auto-detect)
-    jobs: usize = 0,
+    jobs: ?usize = null,
 };
 
 pub const ReporterOptions = struct {
-    /// Reporter type: spec, dot, json, tap, junit
     reporter: []const u8 = "spec",
-    /// JUnit XML output file
     junit_output: ?[]const u8 = null,
-    /// Verbose output
     verbose: bool = false,
 };
 
 pub const SnapshotOptions = struct {
-    /// Snapshot directory
     snapshot_dir: []const u8 = ".snapshots",
-    /// Update snapshots
     update: bool = false,
-    /// Pretty print snapshots
-    pretty_print: bool = true,
 };
 
 pub const WatchOptions = struct {
-    /// Enable watch mode
     enabled: bool = false,
-    /// Directory to watch
-    watch_dir: []const u8 = ".",
-    /// Debounce delay in milliseconds
     debounce_ms: u64 = 300,
-    /// Clear screen between runs
-    clear_screen: bool = true,
 };
 
 pub const MemoryOptions = struct {
-    /// Enable memory profiling
     enabled: bool = false,
-    /// Detect memory leaks
-    detect_leaks: bool = true,
-    /// Track peak memory usage
-    track_peak: bool = true,
-    /// Report threshold in bytes
     report_threshold: usize = 0,
-    /// Fail tests on memory leaks
     fail_on_leak: bool = false,
 };
 
 pub const UIOptions = struct {
-    /// Enable UI server
     enabled: bool = false,
-    /// Port for UI server
     port: u16 = 8080,
-    /// Open browser automatically
-    open_browser: bool = true,
 };
 
 pub const CoverageOptions = struct {
-    /// Enable coverage tracking
     enabled: bool = false,
-    /// Coverage output directory
     output_dir: []const u8 = "coverage",
-    /// Minimum coverage threshold
-    threshold: f64 = 0.0,
 };
 
-/// Configuration loader
+const FileConfig = struct {
+    @"test": TestOptions = .{},
+    parallel: ParallelOptions = .{},
+    reporter: ReporterOptions = .{},
+    snapshot: SnapshotOptions = .{},
+    watch: WatchOptions = .{},
+    memory: MemoryOptions = .{},
+    ui: UIOptions = .{},
+    coverage: CoverageOptions = .{},
+};
+
+pub const ConfigError = error{
+    UnsupportedFormat,
+    InvalidReporter,
+    InvalidJobs,
+    InvalidPort,
+    InvalidTimeout,
+    InvalidDebounce,
+};
+
+/// Owns strings parsed from configuration files until `deinit` is called.
 pub const ConfigLoader = struct {
     allocator: std.mem.Allocator,
+    arena: std.heap.ArenaAllocator,
 
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
+            .arena = .init(allocator),
         };
     }
 
-    /// Load configuration from file
-    pub fn loadFromFile(self: *Self, path: []const u8) !TestConfig {
-        // Detect format from extension
-        const format = if (std.mem.endsWith(u8, path, ".json"))
-            ConfigFormat.json
-        else if (std.mem.endsWith(u8, path, ".toml"))
-            ConfigFormat.toml
-        else
-            return error.UnsupportedFormat;
-
-        switch (format) {
-            .json => return try self.loadFromJson(path),
-            .toml => return error.TomlNotImplementedYet,
-        }
+    pub fn deinit(self: *Self) void {
+        self.arena.deinit();
     }
 
-    /// Load configuration from JSON file
-    fn loadFromJson(self: *Self, path: []const u8) !TestConfig {
+    /// Load a strict JSON configuration. Unknown keys, duplicate keys, and
+    /// values of the wrong type are rejected by the standard JSON parser.
+    pub fn loadFromFile(self: *Self, path: []const u8) !TestConfig {
+        if (!std.mem.endsWith(u8, path, ".json")) return ConfigError.UnsupportedFormat;
+
         const content = try compat.readFileAlloc(self.allocator, path);
         defer self.allocator.free(content);
 
-        var parsed = try std.json.parseFromSlice(std.json.Value, self.allocator, content, .{});
-        defer parsed.deinit();
-
-        return try self.parseConfig(parsed.value);
-    }
-
-    /// Parse configuration from JSON value
-    fn parseConfig(self: *Self, value: std.json.Value) !TestConfig {
-        _ = self;
-
-        var config = TestConfig{};
-
-        if (value != .object) return config;
-
-        const root = value.object;
-
-        // Parse test options
-        if (root.get("test")) |test_value| {
-            if (test_value == .object) {
-                const test_obj = test_value.object;
-                if (test_obj.get("pattern")) |v| {
-                    if (v == .string) config.test_options.pattern = v.string;
-                }
-                if (test_obj.get("test_dir")) |v| {
-                    if (v == .string) config.test_options.test_dir = v.string;
-                }
-                if (test_obj.get("recursive")) |v| {
-                    if (v == .bool) config.test_options.recursive = v.bool;
-                }
-                if (test_obj.get("timeout")) |v| {
-                    if (v == .integer) config.test_options.timeout = @intCast(v.integer);
-                }
-            }
-        }
-
-        // Parse parallel options
-        if (root.get("parallel")) |parallel_value| {
-            if (parallel_value == .object) {
-                const parallel_obj = parallel_value.object;
-                if (parallel_obj.get("enabled")) |v| {
-                    if (v == .bool) config.parallel.enabled = v.bool;
-                }
-                if (parallel_obj.get("jobs")) |v| {
-                    if (v == .integer) config.parallel.jobs = @intCast(v.integer);
-                }
-            }
-        }
-
-        // Parse reporter options
-        if (root.get("reporter")) |reporter_value| {
-            if (reporter_value == .object) {
-                const reporter_obj = reporter_value.object;
-                if (reporter_obj.get("reporter")) |v| {
-                    if (v == .string) config.reporter.reporter = v.string;
-                }
-                if (reporter_obj.get("junit_output")) |v| {
-                    if (v == .string) config.reporter.junit_output = v.string;
-                }
-                if (reporter_obj.get("verbose")) |v| {
-                    if (v == .bool) config.reporter.verbose = v.bool;
-                }
-            }
-        }
-
-        // Parse snapshot options
-        if (root.get("snapshot")) |snapshot_value| {
-            if (snapshot_value == .object) {
-                const snapshot_obj = snapshot_value.object;
-                if (snapshot_obj.get("snapshot_dir")) |v| {
-                    if (v == .string) config.snapshot.snapshot_dir = v.string;
-                }
-                if (snapshot_obj.get("update")) |v| {
-                    if (v == .bool) config.snapshot.update = v.bool;
-                }
-                if (snapshot_obj.get("pretty_print")) |v| {
-                    if (v == .bool) config.snapshot.pretty_print = v.bool;
-                }
-            }
-        }
-
-        // Parse watch options
-        if (root.get("watch")) |watch_value| {
-            if (watch_value == .object) {
-                const watch_obj = watch_value.object;
-                if (watch_obj.get("enabled")) |v| {
-                    if (v == .bool) config.watch.enabled = v.bool;
-                }
-                if (watch_obj.get("watch_dir")) |v| {
-                    if (v == .string) config.watch.watch_dir = v.string;
-                }
-                if (watch_obj.get("debounce_ms")) |v| {
-                    if (v == .integer) config.watch.debounce_ms = @intCast(v.integer);
-                }
-                if (watch_obj.get("clear_screen")) |v| {
-                    if (v == .bool) config.watch.clear_screen = v.bool;
-                }
-            }
-        }
-
-        // Parse memory options
-        if (root.get("memory")) |memory_value| {
-            if (memory_value == .object) {
-                const memory_obj = memory_value.object;
-                if (memory_obj.get("enabled")) |v| {
-                    if (v == .bool) config.memory.enabled = v.bool;
-                }
-                if (memory_obj.get("detect_leaks")) |v| {
-                    if (v == .bool) config.memory.detect_leaks = v.bool;
-                }
-                if (memory_obj.get("track_peak")) |v| {
-                    if (v == .bool) config.memory.track_peak = v.bool;
-                }
-                if (memory_obj.get("report_threshold")) |v| {
-                    if (v == .integer) config.memory.report_threshold = @intCast(v.integer);
-                }
-                if (memory_obj.get("fail_on_leak")) |v| {
-                    if (v == .bool) config.memory.fail_on_leak = v.bool;
-                }
-            }
-        }
-
-        // Parse UI options
-        if (root.get("ui")) |ui_value| {
-            if (ui_value == .object) {
-                const ui_obj = ui_value.object;
-                if (ui_obj.get("enabled")) |v| {
-                    if (v == .bool) config.ui.enabled = v.bool;
-                }
-                if (ui_obj.get("port")) |v| {
-                    if (v == .integer) config.ui.port = @intCast(v.integer);
-                }
-                if (ui_obj.get("open_browser")) |v| {
-                    if (v == .bool) config.ui.open_browser = v.bool;
-                }
-            }
-        }
-
-        // Parse coverage options
-        if (root.get("coverage")) |coverage_value| {
-            if (coverage_value == .object) {
-                const coverage_obj = coverage_value.object;
-                if (coverage_obj.get("enabled")) |v| {
-                    if (v == .bool) config.coverage.enabled = v.bool;
-                }
-                if (coverage_obj.get("output_dir")) |v| {
-                    if (v == .string) config.coverage.output_dir = v.string;
-                }
-                if (coverage_obj.get("threshold")) |v| {
-                    if (v == .float) config.coverage.threshold = v.float;
-                }
-            }
-        }
-
+        const file_config = try std.json.parseFromSliceLeaky(
+            FileConfig,
+            self.arena.allocator(),
+            content,
+            .{ .allocate = .alloc_always },
+        );
+        const config = TestConfig{
+            .test_options = file_config.@"test",
+            .parallel = file_config.parallel,
+            .reporter = file_config.reporter,
+            .snapshot = file_config.snapshot,
+            .watch = file_config.watch,
+            .memory = file_config.memory,
+            .ui = file_config.ui,
+            .coverage = file_config.coverage,
+        };
+        try validate(config);
         return config;
     }
 
-    /// Try to find and load configuration file
+    /// Try conventional JSON configuration locations.
     pub fn autoLoad(self: *Self, config_name: []const u8) !?TestConfig {
         const search_paths = [_][]const u8{
             "zig-test.json",
@@ -312,55 +137,82 @@ pub const ConfigLoader = struct {
             ".config/zig-test.json",
         };
 
-        for (search_paths) |path| {
-            const full_path = if (std.mem.eql(u8, config_name, "zig-test"))
-                path
-            else
-                try std.fmt.allocPrint(self.allocator, "{s}.json", .{config_name});
-
-            defer if (!std.mem.eql(u8, config_name, "zig-test")) self.allocator.free(full_path);
-
-            const config = self.loadFromFile(full_path) catch |err| {
-                if (err == error.FileNotFound) continue;
-                return err;
+        if (!std.mem.eql(u8, config_name, "zig-test")) {
+            const path = try std.fmt.allocPrint(self.allocator, "{s}.json", .{config_name});
+            defer self.allocator.free(path);
+            return self.loadFromFile(path) catch |err| switch (err) {
+                error.FileNotFound => null,
+                else => return err,
             };
-
-            return config;
         }
 
+        for (search_paths) |path| {
+            const config = self.loadFromFile(path) catch |err| switch (err) {
+                error.FileNotFound => continue,
+                else => return err,
+            };
+            return config;
+        }
         return null;
     }
 };
 
-// Tests
-test "TestConfig default values" {
+fn validate(config: TestConfig) !void {
+    const reporter = config.reporter.reporter;
+    if (!std.mem.eql(u8, reporter, "spec") and
+        !std.mem.eql(u8, reporter, "dot") and
+        !std.mem.eql(u8, reporter, "json") and
+        !std.mem.eql(u8, reporter, "tap") and
+        !std.mem.eql(u8, reporter, "junit"))
+    {
+        return ConfigError.InvalidReporter;
+    }
+    if (config.parallel.jobs) |jobs| {
+        if (jobs == 0) return ConfigError.InvalidJobs;
+    }
+    if (config.ui.port == 0) return ConfigError.InvalidPort;
+    if (config.test_options.timeout) |timeout| {
+        if (timeout == 0) return ConfigError.InvalidTimeout;
+    }
+    if (config.watch.debounce_ms == 0) return ConfigError.InvalidDebounce;
+}
+
+test "TestConfig defaults match CLI discovery defaults" {
     const config = TestConfig{};
-
     try std.testing.expectEqualStrings("*.test.zig", config.test_options.pattern);
-    try std.testing.expectEqualStrings("src", config.test_options.test_dir);
-    try std.testing.expectEqual(true, config.test_options.recursive);
-    try std.testing.expectEqual(false, config.parallel.enabled);
+    try std.testing.expectEqualStrings(".", config.test_options.test_dir);
+    try std.testing.expect(config.test_options.recursive);
+    try std.testing.expect(config.test_options.timeout == null);
+    try std.testing.expect(!config.parallel.enabled);
     try std.testing.expectEqualStrings("spec", config.reporter.reporter);
 }
 
-test "ConfigLoader initialization" {
-    const allocator = std.testing.allocator;
-
-    const loader = ConfigLoader.init(allocator);
-    try std.testing.expect(loader.allocator.ptr == allocator.ptr);
+test "ConfigLoader rejects unsupported formats" {
+    var loader = ConfigLoader.init(std.testing.allocator);
+    defer loader.deinit();
+    try std.testing.expectError(ConfigError.UnsupportedFormat, loader.loadFromFile("zig-test.toml"));
 }
 
-test "ConfigLoader parse empty JSON" {
-    const allocator = std.testing.allocator;
+test "configuration validation rejects invalid runtime values" {
+    var invalid = TestConfig{};
+    invalid.reporter.reporter = "pretty";
+    try std.testing.expectError(ConfigError.InvalidReporter, validate(invalid));
+    invalid.reporter.reporter = "spec";
+    invalid.parallel.jobs = 0;
+    try std.testing.expectError(ConfigError.InvalidJobs, validate(invalid));
+}
 
-    var loader = ConfigLoader.init(allocator);
+test "ConfigLoader loads supported JSON and rejects unknown keys" {
+    var loader = ConfigLoader.init(std.testing.allocator);
+    defer loader.deinit();
 
-    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, "{}", .{});
-    defer parsed.deinit();
+    const config = try loader.loadFromFile("tests/fixtures/zig-test.json");
+    try std.testing.expectEqualStrings("tests/fixtures", config.test_options.test_dir);
+    try std.testing.expectEqualStrings("selected test passes", config.test_options.filter.?);
+    try std.testing.expect(!config.test_options.recursive);
 
-    const config = try loader.parseConfig(parsed.value);
-
-    // Should return defaults
-    try std.testing.expectEqualStrings("spec", config.reporter.reporter);
-    try std.testing.expectEqual(false, config.parallel.enabled);
+    try std.testing.expectError(
+        error.UnknownField,
+        loader.loadFromFile("tests/fixtures/invalid-zig-test.json"),
+    );
 }

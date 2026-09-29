@@ -1,4 +1,5 @@
 const std = @import("std");
+const config_mod = @import("config.zig");
 const test_runner = @import("test_runner.zig");
 
 pub const CLIOptions = struct {
@@ -61,6 +62,32 @@ pub const CLI = struct {
         };
     }
 
+    /// Apply configuration defaults before parsing command-line arguments.
+    /// A subsequent `parse` call gives explicitly supplied CLI flags priority.
+    pub fn applyConfig(self: *Self, config: config_mod.TestConfig) !void {
+        self.options.test_dir = config.test_options.test_dir;
+        self.options.pattern = config.test_options.pattern;
+        self.options.no_recursive = !config.test_options.recursive;
+        self.options.filter = config.test_options.filter;
+        self.options.timeout = config.test_options.timeout;
+        self.options.parallel = config.parallel.enabled;
+        self.options.jobs = config.parallel.jobs;
+        self.options.reporter = try reporterFromName(config.reporter.reporter);
+        self.options.junit_output = config.reporter.junit_output;
+        self.options.verbose = config.reporter.verbose;
+        self.options.update_snapshots = config.snapshot.update;
+        self.options.snapshot_dir = config.snapshot.snapshot_dir;
+        self.options.watch = config.watch.enabled;
+        self.options.watch_debounce = config.watch.debounce_ms;
+        self.options.profile_memory = config.memory.enabled;
+        self.options.memory_threshold = config.memory.report_threshold;
+        self.options.fail_on_leak = config.memory.fail_on_leak;
+        self.options.ui = config.ui.enabled;
+        self.options.ui_port = config.ui.port;
+        self.options.coverage = config.coverage.enabled;
+        self.options.coverage_dir = config.coverage.output_dir;
+    }
+
     /// Parse command-line arguments
     pub fn parse(self: *Self, args: []const []const u8) !void {
         var i: usize = 1; // Skip program name
@@ -87,20 +114,10 @@ pub const CLI = struct {
                 i += 1;
                 const reporter_name = args[i];
 
-                if (std.mem.eql(u8, reporter_name, "spec")) {
-                    self.options.reporter = .spec;
-                } else if (std.mem.eql(u8, reporter_name, "dot")) {
-                    self.options.reporter = .dot;
-                } else if (std.mem.eql(u8, reporter_name, "json")) {
-                    self.options.reporter = .json;
-                } else if (std.mem.eql(u8, reporter_name, "tap")) {
-                    self.options.reporter = .tap;
-                } else if (std.mem.eql(u8, reporter_name, "junit")) {
-                    self.options.reporter = .junit;
-                } else {
+                self.options.reporter = reporterFromName(reporter_name) catch {
                     std.debug.print("Error: Unknown reporter '{s}'. Available: spec, dot, json, tap, junit\n", .{reporter_name});
                     return CLIError.InvalidArgument;
-                }
+                };
             } else if (std.mem.eql(u8, arg, "--filter") or std.mem.eql(u8, arg, "--grep")) {
                 if (i + 1 >= args.len) {
                     std.debug.print("Error: --filter/--grep requires a value\n", .{});
@@ -273,7 +290,6 @@ pub const CLI = struct {
         if (self.options.profile_memory) return "--profile-memory";
         if (self.options.memory_threshold != 0) return "--memory-threshold";
         if (self.options.fail_on_leak) return "--fail-on-leak";
-        if (self.options.config != null) return "--config";
         if (self.options.junit_output != null) return "--junit-output";
         if (self.options.timeout != null) return "--timeout";
         if (self.options.ui) return "--ui";
@@ -300,7 +316,7 @@ pub const CLI = struct {
             \\    -q, --quiet             Minimal output
             \\    --no-color              Disable colored output
             \\    --timeout <ms>          Global timeout for all tests in milliseconds
-            \\    -c, --config <file>     Load configuration from file
+            \\    -c, --config <file>     Load strict JSON configuration
             \\
             \\TEST DISCOVERY:
             \\    --test-dir <dir>        Directory to search for tests (default: .)
@@ -383,6 +399,15 @@ pub const CLI = struct {
         };
     }
 };
+
+fn reporterFromName(name: []const u8) !test_runner.ReporterType {
+    if (std.mem.eql(u8, name, "spec")) return .spec;
+    if (std.mem.eql(u8, name, "dot")) return .dot;
+    if (std.mem.eql(u8, name, "json")) return .json;
+    if (std.mem.eql(u8, name, "tap")) return .tap;
+    if (std.mem.eql(u8, name, "junit")) return .junit;
+    return CLIError.InvalidArgument;
+}
 
 test "CLI parse help" {
     var cli = CLI.init(std.testing.allocator);
