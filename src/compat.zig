@@ -113,7 +113,7 @@ fn closeFd(fd: std.posix.fd_t) void {
 /// Read entire file contents using POSIX APIs.
 /// Replaces std.fs.cwd().openFile() + file.readToEndAlloc().
 pub fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
-    const path_z = try allocator.dupeZ(u8, path);
+    const path_z = try allocator.dupeSentinel(u8, path, 0);
     defer allocator.free(path_z);
 
     const fd = std.posix.openatZ(std.posix.AT.FDCWD, path_z, .{}, 0) catch |err| {
@@ -139,7 +139,7 @@ pub fn readFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]const u8
 /// Write content to a file using POSIX APIs.
 /// Replaces std.fs.cwd().createFile() + file.writeAll().
 pub fn writeFile(allocator: std.mem.Allocator, path: []const u8, content: []const u8) !void {
-    const path_z = try allocator.dupeZ(u8, path);
+    const path_z = try allocator.dupeSentinel(u8, path, 0);
     defer allocator.free(path_z);
 
     const fd = std.posix.openatZ(std.posix.AT.FDCWD, path_z, .{
@@ -161,7 +161,7 @@ pub fn writeFile(allocator: std.mem.Allocator, path: []const u8, content: []cons
 /// Delete a file using POSIX APIs.
 /// Replaces std.fs.cwd().deleteFile().
 pub fn deleteFile(allocator: std.mem.Allocator, path: []const u8) !void {
-    const path_z = try allocator.dupeZ(u8, path);
+    const path_z = try allocator.dupeSentinel(u8, path, 0);
     defer allocator.free(path_z);
     const rc = std.c.unlink(path_z);
     if (rc != 0) {
@@ -175,7 +175,7 @@ pub fn deleteFile(allocator: std.mem.Allocator, path: []const u8) !void {
 /// Create directories recursively using POSIX APIs.
 /// Replaces std.fs.cwd().makePath().
 pub fn makePath(allocator: std.mem.Allocator, path: []const u8) !void {
-    const path_z = try allocator.dupeZ(u8, path);
+    const path_z = try allocator.dupeSentinel(u8, path, 0);
     defer allocator.free(path_z);
 
     const rc = std.c.mkdir(path_z, 0o755);
@@ -189,7 +189,7 @@ pub fn makePath(allocator: std.mem.Allocator, path: []const u8) !void {
                 if (sep > 0) {
                     try makePath(allocator, path[0..sep]);
                     // Retry creating the directory
-                    const retry_z = try allocator.dupeZ(u8, path);
+                    const retry_z = try allocator.dupeSentinel(u8, path, 0);
                     defer allocator.free(retry_z);
                     const rc2 = std.c.mkdir(retry_z, 0o755);
                     if (rc2 != 0 and std.c.errno(rc2) != .EXIST) {
@@ -298,7 +298,7 @@ pub fn spawnAndWait(
     defer allocator.free(c_argv);
 
     for (argv, 0..) |arg, i| {
-        const z = try allocator.dupeZ(u8, arg);
+        const z = try allocator.dupeSentinel(u8, arg, 0);
         c_argv[i] = z.ptr;
     }
     c_argv[argv.len] = null;
