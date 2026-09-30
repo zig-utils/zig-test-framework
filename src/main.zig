@@ -154,11 +154,13 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
         const watch_options = lib.WatchOptions{
             .watch_dir = test_dir,
+            .project_root = ".",
             .pattern = cli_parser.options.pattern,
             .recursive = !cli_parser.options.no_recursive,
             .debounce_ms = cli_parser.options.watch_debounce,
             .clear_screen = true,
             .verbose = cli_parser.options.verbose,
+            .interactive_commands = true,
         };
 
         var watcher = lib.TestWatcher.init(allocator, watch_options, &keep_running);

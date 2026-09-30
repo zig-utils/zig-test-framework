@@ -423,6 +423,7 @@ pub const CLI = struct {
             \\WATCH MODE:
             \\    -w, --watch             Watch files and re-run tests on changes
             \\    --watch-debounce <ms>   Debounce delay in milliseconds (default: 300)
+            \\                              Type r + Enter to force a full rerun
             \\
             \\MEMORY PROFILING:
             \\    --profile-memory        Enable memory profiling for tests
