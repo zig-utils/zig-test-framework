@@ -43,9 +43,10 @@ New plan producers should append `PlanItem` values. New executors should emit
 implement `Reporter.VTable`; `EventStream` adapts the typed lifecycle to that
 stable callback interface.
 
-The event types are intentionally internal Zig structures. The separately
-versioned JSON wire protocol is built on this layer rather than making this API
-depend on one serialization format.
+The lifecycle structures remain format-independent. The JSON reporter, live UI,
+and test history adapt them to the public, versioned
+[JSON event protocol](json-event-protocol.md), so integrations share one wire
+model without coupling the execution API to JSON.
 
 ## Migration
 
