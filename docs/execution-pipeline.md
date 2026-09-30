@@ -34,6 +34,9 @@ reporters, including the configured JUnit output path.
   child process.
 - Every logical result owns ordered attempt history. A failure followed by a
   successful retry is classified as `flaky`, distinct from an ordinary pass.
+- Optional randomized execution uses one run seed across the selected plan.
+  The seed is carried by reporters and `TestResults`; see
+  [Randomized test order](randomized-order.md) for mode-specific guarantees.
 - Summaries always come from `TestResults`, rather than executor-local counters.
 
 ## Extension points
@@ -53,10 +56,11 @@ model without coupling the execution API to JSON.
 Existing programmatic APIs remain source compatible:
 
 - `TestRunner.init`, `runTests`, and `runTestsWithOptions` are unchanged.
-- `RunnerOptions` gains optional reporter, timeout, retry, repeat, and flaky-exit
+- `RunnerOptions` gains optional reporter, timeout, retry, repeat, flaky-exit,
+  shuffle, and seed
   fields with backward-compatible defaults.
 - `runDiscoveredTests` and `LoaderOptions` remain available; optional reporter,
-  JUnit path, timeout, retry, repeat, flaky-exit, and writer fields default to
+  JUnit path, timeout, retry, repeat, flaky-exit, shuffle, seed, and writer fields default to
   the previous spec behavior.
 
 CLI hosts can inject a stdout writer with `reporter_writer`. Embedded callers

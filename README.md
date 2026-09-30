@@ -9,6 +9,7 @@ A modern, feature-rich testing framework for Zig inspired by Jest, Vitest, and B
 - **Async Test Support** - Full async test execution with concurrent and sequential modes
 - **Timeout Handling** - Configurable timeouts at test, suite, and global levels with extension support
 - **Retries & Repeats** - Re-run failures, stress-run selected tests, and report flaky outcomes
+- **Reproducible Randomization** - Shuffle suites and tests with replayable seeds
 - **Familiar API** - Describe/it syntax similar to Jest and Vitest
 - **Rich Assertions** - Comprehensive assertion library with `.expect()` and matchers
 - **Error Assertions** - `toThrow()` and `toThrowError()` for testing error handling
@@ -102,6 +103,8 @@ This will automatically discover and run all `*.test.zig` files in the `tests` d
 - `--retry <N>` - Retry a failed test or discovered test file up to N times
 - `--repeat <N>` - Require N successful repetitions of every selected test
 - `--fail-on-flaky` - Return a failing exit status when a retry recovers a failure
+- `--shuffle` - Randomize suites, tests, or discovered files with a generated seed
+- `--seed <N>` - Replay a randomized order; supplying a seed implies `--shuffle`
 - `--shard-index <N>` - Run one one-based file shard
 - `--shard-count <N>` - Set the total number of file shards
 - `--no-color` - Disable color in child Zig test processes
@@ -138,6 +141,10 @@ zig-test --test-dir tests --retry 2 --fail-on-flaky
 
 # Stress-run matching tests 100 times
 zig-test --test-dir tests --filter parser --repeat 100
+
+# Expose order dependencies, then replay the exact order with the printed seed
+zig-test --test-dir tests --shuffle
+zig-test --test-dir tests --seed 8675309
 
 # Run the second of four deterministic file shards
 zig-test --test-dir tests --shard-index 2 --shard-count 4
@@ -185,7 +192,9 @@ precedence over configured values.
     "filter": "database",
     "retries": 2,
     "repeat": 10,
-    "fail_on_flaky": true
+    "fail_on_flaky": true,
+    "shuffle": true,
+    "seed": 8675309
   },
   "sharding": {
     "index": 1,
@@ -204,6 +213,8 @@ limitations as their CLI equivalents; unsupported combinations fail explicitly.
 
 See [Retries, repeats, and flaky tests](docs/retries-and-repeats.md) for attempt
 semantics, exit codes, reporter output, and programmatic configuration.
+See [Randomized test order](docs/randomized-order.md) for replay and ordering
+guarantees.
 
 ### Parallel execution semantics
 
@@ -212,7 +223,8 @@ and set `n_jobs`. A configured value is the exact maximum number of active test
 workers; omitting it uses the host's logical CPU count, with a one-worker
 fallback when detection is unavailable.
 
-Suites and nested suites are visited in declaration order. `beforeAll` and
+Suites and nested suites are visited in the selected order: declaration order
+by default, or deterministic seed order when randomization is enabled. `beforeAll` and
 `afterAll` run once on the coordinating thread around that suite and its nested
 suites. Direct tests within a suite may overlap. Their inherited `beforeEach`
 and `afterEach` hooks run on the same worker as the test, so per-test hook order
@@ -220,7 +232,7 @@ is preserved but hooks from different tests may overlap. Hook state and the
 allocator passed to tests must therefore be thread-safe.
 
 Reporter callbacks never run concurrently: test results are emitted in
-declaration order after each parallel batch, making output and final totals
+the selected order after each parallel batch, making output and final totals
 deterministic. A parallel batch is already scheduled as a unit, so `bail` cannot
 cancel tests that have started.
 
@@ -665,6 +677,8 @@ zig-test --no-color
 | `--retry <N>` | `--retries <N>` | Retry each failed test up to N times |
 | `--repeat <N>` | | Require N successful runs of each selected test |
 | `--fail-on-flaky` | | Fail the run when a retry recovers a failure |
+| `--shuffle` | | Randomize suite, test, and discovered-file order |
+| `--seed <N>` | | Replay a randomized order; implies `--shuffle` |
 | `--verbose` | | Enable verbose output |
 | `--quiet` | `-q` | Minimal output |
 | `--no-color` | | Disable colored output |
