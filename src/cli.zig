@@ -49,6 +49,8 @@ pub const CLIOptions = struct {
     retries: usize = 0,
     repeat: usize = 1,
     fail_on_flaky: bool = false,
+    shuffle: bool = false,
+    seed: ?u64 = null,
 };
 
 pub const version = build_options.version;
@@ -82,6 +84,8 @@ pub const CLI = struct {
         self.options.retries = config.test_options.retries;
         self.options.repeat = config.test_options.repeat;
         self.options.fail_on_flaky = config.test_options.fail_on_flaky;
+        self.options.shuffle = config.test_options.shuffle or config.test_options.seed != null;
+        self.options.seed = config.test_options.seed;
         self.options.shard_index = config.sharding.index;
         self.options.shard_count = config.sharding.count;
         self.options.parallel = config.parallel.enabled;
@@ -140,6 +144,19 @@ pub const CLI = struct {
                 }
             } else if (std.mem.eql(u8, arg, "--fail-on-flaky")) {
                 self.options.fail_on_flaky = true;
+            } else if (std.mem.eql(u8, arg, "--shuffle")) {
+                self.options.shuffle = true;
+            } else if (std.mem.eql(u8, arg, "--seed")) {
+                if (i + 1 >= args.len) {
+                    std.debug.print("Error: --seed requires a value\n", .{});
+                    return CLIError.MissingValue;
+                }
+                i += 1;
+                self.options.seed = std.fmt.parseInt(u64, args[i], 10) catch {
+                    std.debug.print("Error: --seed must be a valid unsigned integer\n", .{});
+                    return CLIError.InvalidArgument;
+                };
+                self.options.shuffle = true;
             } else if (std.mem.eql(u8, arg, "--verbose")) {
                 self.options.verbose = true;
             } else if (std.mem.eql(u8, arg, "--quiet") or std.mem.eql(u8, arg, "-q")) {
@@ -386,6 +403,8 @@ pub const CLI = struct {
             \\    --retry <N>             Retry each failed test up to N times
             \\    --repeat <N>            Require N successful runs of each selected test
             \\    --fail-on-flaky         Exit unsuccessfully when a retry recovers a failure
+            \\    --shuffle               Randomize suite and test order
+            \\    --seed <N>              Reproduce a randomized order (implies --shuffle)
             \\    --filter <pattern>      Run only tests matching pattern
             \\    --grep <pattern>        Same as --filter (alias)
             \\    --reporter <name>       Set reporter type (spec, dot, json, tap, junit)
@@ -452,6 +471,8 @@ pub const CLI = struct {
             \\    zig-test --timeout 10000              Set 10s timeout for all tests
             \\    zig-test --retry 2 --fail-on-flaky    Detect and reject flaky tests
             \\    zig-test --repeat 100 --filter parser Stress-run selected tests
+            \\    zig-test --shuffle                  Run in a generated random order
+            \\    zig-test --seed 12345               Replay a randomized order
             \\    zig-test --profile-memory --fail-on-leak
             \\    zig-test --parallel --jobs 4          Run with 4 parallel workers
             \\    zig-test --config zig-test.json       Load config from file
@@ -482,6 +503,8 @@ pub const CLI = struct {
             .retries = self.options.retries,
             .repeat = self.options.repeat,
             .fail_on_flaky = self.options.fail_on_flaky,
+            .shuffle = self.options.shuffle,
+            .seed = self.options.seed,
         };
     }
 };
@@ -722,6 +745,17 @@ test "CLI parses retry repeat and flaky exit policy" {
     try std.testing.expectEqual(@as(usize, 2), runner_options.retries);
     try std.testing.expectEqual(@as(usize, 5), runner_options.repeat);
     try std.testing.expect(runner_options.fail_on_flaky);
+}
+
+test "CLI parses shuffle and a seed implies it" {
+    var cli = CLI.init(std.testing.allocator);
+    try cli.parse(&.{ "zig-test", "--seed", "12345" });
+    try std.testing.expect(cli.options.shuffle);
+    try std.testing.expectEqual(@as(?u64, 12345), cli.options.seed);
+
+    const runner_options = cli.toRunnerOptions();
+    try std.testing.expect(runner_options.shuffle);
+    try std.testing.expectEqual(@as(?u64, 12345), runner_options.seed);
 }
 
 test "CLI rejects a zero repeat count" {

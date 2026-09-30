@@ -27,6 +27,7 @@ pub const timeout = @import("timeout.zig");
 pub const progress = @import("progress.zig");
 pub const time = @import("time.zig");
 pub const compat = @import("compat.zig");
+pub const random_order = @import("random_order.zig");
 
 // Re-export commonly used types and functions
 pub const expect = assertions.expect;

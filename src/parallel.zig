@@ -3,6 +3,7 @@ const suite = @import("suite.zig");
 const reporter = @import("reporter.zig");
 const pipeline = @import("pipeline.zig");
 const compat = @import("compat.zig");
+const random_order = @import("random_order.zig");
 
 /// Options for bounded parallel test execution.
 pub const ParallelOptions = struct {
@@ -12,6 +13,7 @@ pub const ParallelOptions = struct {
     enabled: bool = false,
     filter: ?[]const u8 = null,
     timeout_ms: ?u64 = null,
+    random_seed: ?u64 = null,
 };
 
 pub const ParallelError = error{
@@ -111,6 +113,7 @@ const RunContext = struct {
     rep: *reporter.Reporter,
     options: ParallelOptions,
     worker_limit: usize,
+    shuffler: ?*random_order.Shuffler,
 
     fn runSuite(self: *RunContext, test_suite: *suite.TestSuite) !bool {
         try self.rep.onSuiteStart(test_suite.name);
@@ -131,7 +134,12 @@ const RunContext = struct {
         var scheduled: std.ArrayList(*suite.TestCase) = .empty;
         defer scheduled.deinit(self.allocator);
 
-        for (test_suite.tests.items) |*test_case| {
+        var ordered_tests: std.ArrayList(*suite.TestCase) = .empty;
+        defer ordered_tests.deinit(self.allocator);
+        for (test_suite.tests.items) |*test_case| try ordered_tests.append(self.allocator, test_case);
+        if (self.shuffler) |randomizer| randomizer.shuffle(*suite.TestCase, ordered_tests.items);
+
+        for (ordered_tests.items) |test_case| {
             if (!self.shouldRun(test_suite, test_case)) {
                 test_case.status = .skipped;
                 continue;
@@ -143,12 +151,16 @@ const RunContext = struct {
         try self.runBatch(test_suite, scheduled.items);
 
         var all_passed = true;
-        for (test_suite.tests.items) |*test_case| {
+        for (ordered_tests.items) |test_case| {
             try self.rep.onTestEnd(test_case);
             if (test_case.status == .failed) all_passed = false;
         }
 
-        for (test_suite.suites.items) |nested_suite| {
+        var nested_suites: std.ArrayList(*suite.TestSuite) = .empty;
+        defer nested_suites.deinit(self.allocator);
+        try nested_suites.appendSlice(self.allocator, test_suite.suites.items);
+        if (self.shuffler) |randomizer| randomizer.shuffle(*suite.TestSuite, nested_suites.items);
+        for (nested_suites.items) |nested_suite| {
             if (!try self.runSuite(nested_suite)) all_passed = false;
         }
 
@@ -201,11 +213,19 @@ const RunContext = struct {
     }
 
     fn reportSkippedSuite(self: *RunContext, test_suite: *suite.TestSuite) !void {
-        for (test_suite.tests.items) |*test_case| {
+        var tests: std.ArrayList(*suite.TestCase) = .empty;
+        defer tests.deinit(self.allocator);
+        for (test_suite.tests.items) |*test_case| try tests.append(self.allocator, test_case);
+        if (self.shuffler) |randomizer| randomizer.shuffle(*suite.TestCase, tests.items);
+        for (tests.items) |test_case| {
             test_case.status = .skipped;
             try self.rep.onTestEnd(test_case);
         }
-        for (test_suite.suites.items) |nested| {
+        var nested_suites: std.ArrayList(*suite.TestSuite) = .empty;
+        defer nested_suites.deinit(self.allocator);
+        try nested_suites.appendSlice(self.allocator, test_suite.suites.items);
+        if (self.shuffler) |randomizer| randomizer.shuffle(*suite.TestSuite, nested_suites.items);
+        for (nested_suites.items) |nested| {
             try self.rep.onSuiteStart(nested.name);
             try self.reportSkippedSuite(nested);
             try self.rep.onSuiteEnd(nested.name);
@@ -213,9 +233,9 @@ const RunContext = struct {
     }
 };
 
-/// Run suites in declaration order while executing each suite's direct tests
+/// Run suites in the selected deterministic order while executing each suite's direct tests
 /// with a bounded worker set. Reporter callbacks are serialized and emitted in
-/// declaration order after each batch completes.
+/// the selected order after each batch completes.
 pub fn runTestsParallel(
     allocator: std.mem.Allocator,
     test_registry: *suite.TestRegistry,
@@ -226,7 +246,14 @@ pub fn runTestsParallel(
     const worker_limit = try resolveWorkerCount(options.n_jobs);
 
     const total_tests = test_registry.countAllTests();
+    rep.random_seed = options.random_seed;
     try rep.onRunStart(total_tests);
+
+    var shuffler: random_order.Shuffler = undefined;
+    const shuffler_ptr: ?*random_order.Shuffler = if (options.random_seed) |seed| blk: {
+        shuffler = .init(seed);
+        break :blk &shuffler;
+    } else null;
 
     var context = RunContext{
         .allocator = allocator,
@@ -234,15 +261,21 @@ pub fn runTestsParallel(
         .rep = rep,
         .options = options,
         .worker_limit = worker_limit,
+        .shuffler = shuffler_ptr,
     };
 
+    var root_suites: std.ArrayList(*suite.TestSuite) = .empty;
+    defer root_suites.deinit(allocator);
+    try root_suites.appendSlice(allocator, test_registry.root_suites.items);
+    if (shuffler_ptr) |randomizer| randomizer.shuffle(*suite.TestSuite, root_suites.items);
     var all_passed = true;
-    for (test_registry.root_suites.items) |test_suite| {
+    for (root_suites.items) |test_suite| {
         if (!try context.runSuite(test_suite)) all_passed = false;
     }
 
     var results = reporter.TestResults.init(allocator);
     defer results.deinit();
+    results.random_seed = options.random_seed;
     for (test_registry.root_suites.items) |test_suite| {
         try addSuiteResults(&results, test_suite);
     }
@@ -347,6 +380,7 @@ const RecordingReporter = struct {
     passed: usize = 0,
     failed: usize = 0,
     skipped: usize = 0,
+    random_seed: ?u64 = null,
 
     fn init(allocator: std.mem.Allocator) RecordingReporter {
         return .{
@@ -379,6 +413,7 @@ const RecordingReporter = struct {
         recording.passed = results.passed;
         recording.failed = results.failed;
         recording.skipped = results.skipped;
+        recording.random_seed = results.random_seed;
     }
 
     fn onSuiteStart(rep: *reporter.Reporter, _: []const u8) !void {
@@ -466,6 +501,37 @@ test "parallel reporting is serialized, ordered, and complete" {
     try std.testing.expectEqual(@as(usize, 1), recording.passed);
     try std.testing.expectEqual(@as(usize, 1), recording.failed);
     try std.testing.expectEqual(@as(usize, 1), recording.skipped);
+}
+
+test "parallel order is reproducible with a fixed seed" {
+    const allocator = std.heap.smp_allocator;
+    var registry = suite.TestRegistry.init(allocator);
+    defer registry.deinit();
+    const test_suite = try suite.TestSuite.init(allocator, "randomized");
+    inline for (.{ "one", "two", "three", "four", "five", "six" }) |name| {
+        try test_suite.addTest(suite.TestCase.init(name, passingTest));
+    }
+    try registry.registerSuite(test_suite);
+
+    var first = RecordingReporter.init(allocator);
+    try std.testing.expect(try runTestsParallel(allocator, &registry, &first.reporter, .{
+        .enabled = true,
+        .n_jobs = 2,
+        .random_seed = 8675309,
+    }));
+    var second = RecordingReporter.init(allocator);
+    try std.testing.expect(try runTestsParallel(allocator, &registry, &second.reporter, .{
+        .enabled = true,
+        .n_jobs = 2,
+        .random_seed = 8675309,
+    }));
+
+    try std.testing.expectEqual(first.ended_count, second.ended_count);
+    for (first.ended_names[0..first.ended_count], second.ended_names[0..second.ended_count]) |a, b| {
+        try std.testing.expectEqualStrings(a, b);
+    }
+    try std.testing.expectEqual(@as(?u64, 8675309), first.random_seed);
+    try std.testing.expectEqual(@as(?u64, 8675309), second.random_seed);
 }
 
 test "parallel executor preserves nested hook lifecycles" {

@@ -7,7 +7,10 @@ pub const Status = enum { pending, running, passed, flaky, failed, skipped };
 pub const HookKind = enum { before_all, before_each, after_each, after_all };
 pub const OutputStream = enum { stdout, stderr };
 
-pub const RunStart = struct { total: usize };
+pub const RunStart = struct {
+    total: usize,
+    random_seed: ?u64 = null,
+};
 pub const RunEnd = struct {
     total: usize,
     passed: usize,
@@ -15,6 +18,7 @@ pub const RunEnd = struct {
     failed: usize,
     skipped: usize,
     duration_ns: u64 = 0,
+    random_seed: ?u64 = null,
 };
 pub const Suite = struct { name: []const u8 };
 pub const TestStart = struct { name: []const u8, suite: ?[]const u8 = null };

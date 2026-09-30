@@ -31,6 +31,7 @@ pub const Reporter = struct {
     vtable: *const VTable,
     allocator: std.mem.Allocator,
     use_colors: bool = true,
+    random_seed: ?u64 = null,
 
     const Self = @This();
 
@@ -76,6 +77,7 @@ pub const TestResults = struct {
     failed: usize = 0,
     skipped: usize = 0,
     total_time_ns: u64 = 0,
+    random_seed: ?u64 = null,
     failed_tests: std.ArrayList(suite.TestCase),
     flaky_tests: std.ArrayList(suite.TestCase),
     allocator: std.mem.Allocator,
@@ -163,6 +165,9 @@ pub const SpecReporter = struct {
         } else {
             try s.output().print("Running {d} test(s)...\n\n", .{total_tests});
         }
+        if (reporter.random_seed) |seed| {
+            try s.output().print("Random seed: {d}\n\n", .{seed});
+        }
     }
 
     fn onRunEnd(reporter: *Reporter, results: *TestResults) !void {
@@ -188,6 +193,9 @@ pub const SpecReporter = struct {
                 }
             }
             try s.output().print("\n", .{});
+            if (results.random_seed) |seed| {
+                try s.output().print("Reproduce with: --seed {d}\n\n", .{seed});
+            }
         }
 
         // Print summary
@@ -377,6 +385,7 @@ pub const DotReporter = struct {
     fn onRunStart(reporter: *Reporter, total_tests: usize) !void {
         const s = self(reporter);
         try s.output().print("\nRunning {d} tests:\n", .{total_tests});
+        if (reporter.random_seed) |seed| try s.output().print("Random seed: {d}\n", .{seed});
     }
 
     fn onRunEnd(reporter: *Reporter, results: *TestResults) !void {
@@ -398,6 +407,9 @@ pub const DotReporter = struct {
                 results.total,
                 total_time_ms,
             });
+        }
+        if (results.failed > 0) {
+            if (results.random_seed) |seed| try s.output().print("Reproduce with: --seed {d}\n", .{seed});
         }
     }
 
@@ -512,7 +524,7 @@ pub const JsonReporter = struct {
         s.emitted_events = false;
         s.suites.clearRetainingCapacity();
         try s.output().writeAll("[\n");
-        try s.emit(.{ .run_start = .{ .total = total_tests } });
+        try s.emit(.{ .run_start = .{ .total = total_tests, .random_seed = reporter.random_seed } });
     }
 
     fn onRunEnd(reporter: *Reporter, results: *TestResults) !void {
@@ -524,6 +536,7 @@ pub const JsonReporter = struct {
             .failed = results.failed,
             .skipped = results.skipped,
             .duration_ns = results.total_time_ns,
+            .random_seed = results.random_seed,
         } });
         try s.output().writeAll("\n]\n");
     }
@@ -618,11 +631,14 @@ pub const TAPReporter = struct {
     fn onRunStart(reporter: *Reporter, total: usize) !void {
         const self: *Self = @fieldParentPtr("reporter", reporter);
         try self.output().print("TAP version 14\n1..{d}\n", .{total});
+        if (reporter.random_seed) |seed| try self.output().print("# random-seed {d}\n", .{seed});
     }
 
     fn onRunEnd(reporter: *Reporter, results: *TestResults) !void {
-        _ = reporter;
-        _ = results;
+        const self: *Self = @fieldParentPtr("reporter", reporter);
+        if (results.failed > 0) {
+            if (results.random_seed) |seed| try self.output().print("# reproduce --seed {d}\n", .{seed});
+        }
     }
 
     fn onSuiteStart(reporter: *Reporter, suite_name: []const u8) !void {
@@ -753,14 +769,13 @@ pub const JUnitReporter = struct {
     fn onSuiteStart(reporter: *Reporter, suite_name: []const u8) !void {
         const self: *Self = @fieldParentPtr("reporter", reporter);
 
-        const suite_result = try self.allocator.create(TestSuiteResult);
-        suite_result.* = .{
+        const suite_result = TestSuiteResult{
             .name = try self.allocator.dupe(u8, suite_name),
             .tests = .empty,
             .timestamp = compat.milliTimestamp(),
         };
 
-        try self.suites.append(self.allocator, suite_result.*);
+        try self.suites.append(self.allocator, suite_result);
         self.current_suite = &self.suites.items[self.suites.items.len - 1];
     }
 
@@ -842,6 +857,10 @@ pub const JUnitReporter = struct {
                 suite_skipped,
                 suite_time,
             });
+
+            if (results.random_seed) |seed| {
+                try buffer.print(self.allocator, "    <properties><property name=\"random_seed\" value=\"{d}\"/></properties>\n", .{seed});
+            }
 
             for (suite_result.tests.items) |test_result| {
                 try buffer.print(self.allocator, "    <testcase name=\"{s}\" time=\"{d:.6}\"", .{

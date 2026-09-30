@@ -13,6 +13,7 @@ pub const HistoryEntry = struct {
     failed: usize,
     skipped: usize,
     duration_ns: u64,
+    random_seed: ?u64 = null,
     tests: std.ArrayList(TestRecord),
 
     pub fn deinit(self: *HistoryEntry, allocator: std.mem.Allocator) void {
@@ -65,6 +66,11 @@ pub const TestHistory = struct {
 
     /// Start recording a new test run
     pub fn startRun(self: *Self, total: usize) !void {
+        try self.startRunWithSeed(total, null);
+    }
+
+    /// Start recording a run with optional randomized-order metadata.
+    pub fn startRunWithSeed(self: *Self, total: usize, random_seed: ?u64) !void {
         self.start_time = compat.milliTimestamp();
 
         self.current_entry = HistoryEntry{
@@ -75,6 +81,7 @@ pub const TestHistory = struct {
             .failed = 0,
             .skipped = 0,
             .duration_ns = 0,
+            .random_seed = random_seed,
             .tests = std.ArrayList(TestRecord).empty,
         };
     }
@@ -117,6 +124,7 @@ pub const TestHistory = struct {
         self.current_entry.?.flaky = results.flaky;
         self.current_entry.?.failed = results.failed;
         self.current_entry.?.skipped = results.skipped;
+        self.current_entry.?.random_seed = results.random_seed orelse self.current_entry.?.random_seed;
 
         try self.saveToFile();
     }
@@ -139,7 +147,10 @@ pub const TestHistory = struct {
         errdefer buffer = allocating.toArrayList();
         const writer = &allocating.writer;
         try writer.writeAll("[\n");
-        try std.json.Stringify.value(protocol.Event{ .run_start = .{ .total = self.current_entry.?.total } }, .{}, writer);
+        try std.json.Stringify.value(protocol.Event{ .run_start = .{
+            .total = self.current_entry.?.total,
+            .random_seed = self.current_entry.?.random_seed,
+        } }, .{}, writer);
         for (self.current_entry.?.tests.items) |test_record| {
             try writer.writeAll(",\n");
             try std.json.Stringify.value(protocol.Event{ .test_end = .{
@@ -158,6 +169,7 @@ pub const TestHistory = struct {
             .failed = self.current_entry.?.failed,
             .skipped = self.current_entry.?.skipped,
             .duration_ns = self.current_entry.?.duration_ns,
+            .random_seed = self.current_entry.?.random_seed,
         } }, .{}, writer);
         try writer.writeAll("\n]\n");
         try writer.flush();
@@ -192,6 +204,7 @@ pub const TestHistory = struct {
             .failed = 0,
             .skipped = 0,
             .duration_ns = 0,
+            .random_seed = null,
             .tests = std.ArrayList(TestRecord).empty,
         };
     }
@@ -258,7 +271,7 @@ test "TestHistory saves versioned protocol events" {
 
     var history = TestHistory.init(allocator, history_dir);
     defer history.deinit();
-    try history.startRun(1);
+    try history.startRunWithSeed(1, 9876);
     try history.recordTest("quoted \"test\"", "suite\nname", .passed, 42, null);
     var results = reporter_mod.TestResults.init(allocator);
     defer results.deinit();
@@ -277,9 +290,11 @@ test "TestHistory saves versioned protocol events" {
     const events = parsed.value.array.items;
     try std.testing.expectEqual(@as(usize, 3), events.len);
     try std.testing.expectEqualStrings("run_start", events[0].object.get("type").?.string);
+    try std.testing.expectEqual(@as(i64, 9876), events[0].object.get("data").?.object.get("random_seed").?.integer);
     try std.testing.expectEqualStrings("test_end", events[1].object.get("type").?.string);
     try std.testing.expectEqualStrings("quoted \"test\"", events[1].object.get("data").?.object.get("name").?.string);
     try std.testing.expectEqualStrings("run_end", events[2].object.get("type").?.string);
+    try std.testing.expectEqual(@as(i64, 9876), events[2].object.get("data").?.object.get("random_seed").?.integer);
     for (events) |event| {
         try std.testing.expectEqual(@as(i64, protocol.version), event.object.get("protocol_version").?.integer);
     }
