@@ -882,6 +882,17 @@ The async, snapshot, progress, and timeout examples are compile-checked rather
 than executed by this step because they intentionally demonstrate delays,
 generated files, interactive output, or failure handling.
 
+## Watch Mode
+
+```bash
+zig-test --test-dir tests --watch
+```
+
+After the initial full run, watch mode reruns changed tests or tests affected by
+relative Zig imports. It falls back to the full suite when dependency data is
+incomplete. Type `r` and press Enter to force a full rerun. See
+[docs/watch-mode.md](docs/watch-mode.md) for selection and debounce behavior.
+
 ## Requirements
 
 - The exact Zig development build recorded in [`.zig-version`](.zig-version)
@@ -905,6 +916,7 @@ Comprehensive guides and API documentation:
 - **[Mocking & Spying](docs/mocks.md)** - Complete Jest-compatible mocking API with 20+ methods
 - **[Snapshot Testing](docs/snapshots.md)** - Multiple formats, named snapshots, and diff visualization
 - **[Date & Time Mocking](docs/dates-and-times.md)** - Control time with `setSystemTime()` and Jest-compatible APIs
+- **[Watch Mode](docs/watch-mode.md)** - Affected-test selection, safe fallbacks, and full reruns
 
 ### Additional Resources
 
