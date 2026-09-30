@@ -7,6 +7,7 @@ const suite = @import("suite.zig");
 const coverage = @import("coverage.zig");
 const ui_server = @import("ui_server.zig");
 const compat = @import("compat.zig");
+const protocol = @import("event_protocol.zig");
 
 /// Options for running discovered tests
 pub const LoaderOptions = struct {
@@ -40,12 +41,6 @@ pub const LoaderOptions = struct {
     /// UI server for real-time updates
     ui_server: ?*ui_server.UIServer = null,
 };
-
-fn broadcastJson(server: *ui_server.UIServer, allocator: std.mem.Allocator, event: []const u8, value: anytype) !void {
-    const json = try std.json.Stringify.valueAlloc(allocator, value, .{});
-    defer allocator.free(json);
-    try server.broadcast(event, json);
-}
 
 /// Run all discovered test files
 pub fn runDiscoveredTests(
@@ -107,7 +102,7 @@ pub fn runDiscoveredTests(
 
     // Notify UI of run start
     if (options.ui_server) |server| {
-        try broadcastJson(server, allocator, "run_start", .{ .total = selected_files });
+        try server.broadcastEvent(allocator, .{ .run_start = .{ .total = selected_files } });
     }
 
     var files_run: usize = 0;
@@ -129,8 +124,8 @@ pub fn runDiscoveredTests(
 
         // Notify UI of test file start
         if (options.ui_server) |server| {
-            try broadcastJson(server, allocator, "suite_start", .{ .name = file.name });
-            try broadcastJson(server, allocator, "test_start", .{ .name = file.name });
+            try server.broadcastEvent(allocator, .{ .suite_start = .{ .name = file.name } });
+            try server.broadcastEvent(allocator, .{ .test_start = .{ .name = file.name, .suite = file.name } });
         }
 
         files_run += 1;
@@ -182,14 +177,24 @@ pub fn runDiscoveredTests(
 
         // Notify UI of test file end
         if (options.ui_server) |server| {
-            try broadcastJson(server, allocator, "test_end", .{
+            for (test_case.attempts.items) |attempt| {
+                try server.broadcastEvent(allocator, .{ .retry = .{
+                    .name = file.name,
+                    .attempt = attempt.number,
+                    .repetition = attempt.repetition,
+                    .status = protocol.status(attempt.status),
+                    .duration_ns = attempt.duration_ns,
+                    .error_message = attempt.error_message,
+                } });
+            }
+            try server.broadcastEvent(allocator, .{ .test_end = .{
                 .name = file.name,
-                .status = @tagName(test_case.status),
-                .execution_time_ns = test_case.execution_time_ns,
-                .attempts = test_case.attempts.items.len,
-                .error_message = "",
-            });
-            try broadcastJson(server, allocator, "suite_end", .{ .name = file.name });
+                .suite = file.name,
+                .status = protocol.status(test_case.status),
+                .duration_ns = test_case.execution_time_ns,
+                .error_message = test_case.error_message,
+            } });
+            try server.broadcastEvent(allocator, .{ .suite_end = .{ .name = file.name } });
         }
 
         if (test_case.status == .passed) {
@@ -213,19 +218,30 @@ pub fn runDiscoveredTests(
                 std.debug.print("Warning: Could not parse coverage report: {any}\n", .{err});
                 break :result null;
             };
-            if (cov_result) |summary| coverage.printCoverageSummary(summary);
+            if (cov_result) |summary| {
+                coverage.printCoverageSummary(summary);
+                if (options.ui_server) |server| {
+                    try server.broadcastEvent(allocator, .{ .coverage = .{
+                        .line_percent = summary.linePercentage(),
+                        .function_percent = summary.functionPercentage(),
+                        .branch_percent = summary.branchPercentage(),
+                        .report_path = summary.report_dir,
+                    } });
+                }
+            }
         }
     }
 
     // Notify UI of run end
     if (options.ui_server) |server| {
-        try broadcastJson(server, allocator, "run_end", .{
+        try server.broadcastEvent(allocator, .{ .run_end = .{
             .total = results.total,
             .passed = results.passed,
             .flaky = results.flaky,
             .failed = results.failed,
             .skipped = results.skipped,
-        });
+            .duration_ns = results.total_time_ns,
+        } });
     }
 
     if (options.shard) |shard| {

@@ -1,6 +1,7 @@
 const std = @import("std");
 const suite = @import("suite.zig");
 const compat = @import("compat.zig");
+const protocol = @import("event_protocol.zig");
 
 pub const ReporterType = enum {
     spec,
@@ -464,7 +465,7 @@ pub const JsonReporter = struct {
     writer: std.Io.Writer,
     writer_ref: ?*std.Io.Writer = null,
     suites: std.ArrayList([]const u8),
-    emitted_tests: bool = false,
+    emitted_events: bool = false,
 
     const Self = @This();
 
@@ -508,87 +509,72 @@ pub const JsonReporter = struct {
 
     fn onRunStart(reporter: *Reporter, total_tests: usize) !void {
         const s = self(reporter);
-        try s.output().print("{{\"totalTests\":{d},\"tests\":[\n", .{total_tests});
+        s.emitted_events = false;
+        s.suites.clearRetainingCapacity();
+        try s.output().writeAll("[\n");
+        try s.emit(.{ .run_start = .{ .total = total_tests } });
     }
 
     fn onRunEnd(reporter: *Reporter, results: *TestResults) !void {
         const s = self(reporter);
-        const total_time_ms = @as(f64, @floatFromInt(results.total_time_ns)) / 1_000_000.0;
-
-        try s.output().print("\n],\"summary\":{{\"total\":{d},\"passed\":{d},\"flaky\":{d},\"failed\":{d},\"skipped\":{d},\"time\":{d:.2}}}}}\n", .{
-            results.total,
-            results.passed,
-            results.flaky,
-            results.failed,
-            results.skipped,
-            total_time_ms,
-        });
+        try s.emit(.{ .run_end = .{
+            .total = results.total,
+            .passed = results.passed,
+            .flaky = results.flaky,
+            .failed = results.failed,
+            .skipped = results.skipped,
+            .duration_ns = results.total_time_ns,
+        } });
+        try s.output().writeAll("\n]\n");
     }
 
     fn onSuiteStart(reporter: *Reporter, suite_name: []const u8) !void {
         const s = self(reporter);
         try s.suites.append(reporter.allocator, suite_name);
+        try s.emit(.{ .suite_start = .{ .name = suite_name } });
     }
 
     fn onSuiteEnd(reporter: *Reporter, suite_name: []const u8) !void {
-        _ = suite_name;
         const s = self(reporter);
+        try s.emit(.{ .suite_end = .{ .name = suite_name } });
         if (s.suites.items.len > 0) {
             _ = s.suites.pop();
         }
     }
 
     fn onTestStart(reporter: *Reporter, test_name: []const u8) !void {
-        _ = reporter;
-        _ = test_name;
+        const s = self(reporter);
+        try s.emit(.{ .test_start = .{
+            .name = test_name,
+            .suite = if (s.suites.getLastOrNull()) |name| name else null,
+        } });
     }
 
     fn onTestEnd(reporter: *Reporter, test_case: *const suite.TestCase) !void {
         const s = self(reporter);
-        const time_ms = @as(f64, @floatFromInt(test_case.execution_time_ns)) / 1_000_000.0;
-
-        const status_str = switch (test_case.status) {
-            .passed => "passed",
-            .flaky => "flaky",
-            .failed => "failed",
-            .skipped => "skipped",
-            else => "unknown",
-        };
-
-        if (s.emitted_tests) try s.output().print(",\n", .{});
-        s.emitted_tests = true;
-
-        // Note: In a real implementation, you'd want to properly escape JSON strings
-        try s.output().print("  {{\"name\":\"{s}\",\"status\":\"{s}\",\"time\":{d:.2}", .{
-            test_case.name,
-            status_str,
-            time_ms,
-        });
-
-        if (test_case.error_message) |msg| {
-            try s.output().print(",\"error\":\"{s}\"", .{msg});
+        for (test_case.attempts.items) |attempt| {
+            try s.emit(.{ .retry = .{
+                .name = test_case.name,
+                .attempt = attempt.number,
+                .repetition = attempt.repetition,
+                .status = protocol.status(attempt.status),
+                .duration_ns = attempt.duration_ns,
+                .error_message = attempt.error_message,
+            } });
         }
+        try s.emit(.{ .test_end = .{
+            .name = test_case.name,
+            .suite = if (s.suites.getLastOrNull()) |name| name else null,
+            .status = protocol.status(test_case.status),
+            .duration_ns = test_case.execution_time_ns,
+            .error_message = test_case.error_message,
+        } });
+    }
 
-        try s.output().print(",\"attempts\":[", .{});
-        for (test_case.attempts.items, 0..) |attempt, index| {
-            if (index > 0) try s.output().print(",", .{});
-            const attempt_status = switch (attempt.status) {
-                .passed => "passed",
-                .flaky => "flaky",
-                .failed => "failed",
-                .skipped => "skipped",
-                else => "unknown",
-            };
-            try s.output().print(
-                "{{\"number\":{d},\"repetition\":{d},\"status\":\"{s}\",\"durationNs\":{d}",
-                .{ attempt.number, attempt.repetition, attempt_status, attempt.duration_ns },
-            );
-            if (attempt.error_message) |message| {
-                try s.output().print(",\"error\":\"{s}\"", .{message});
-            }
-            try s.output().print("}}", .{});
-        }
-        try s.output().print("]}}", .{});
+    fn emit(s: *Self, event: protocol.Event) !void {
+        if (s.emitted_events) try s.output().writeAll(",\n");
+        s.emitted_events = true;
+        try std.json.Stringify.value(event, .{}, s.output());
     }
 };
 

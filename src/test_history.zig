@@ -2,12 +2,14 @@ const std = @import("std");
 const reporter_mod = @import("reporter.zig");
 const suite = @import("suite.zig");
 const compat = @import("compat.zig");
+const protocol = @import("event_protocol.zig");
 
 /// Test history entry
 pub const HistoryEntry = struct {
     timestamp: i64,
     total: usize,
     passed: usize,
+    flaky: usize = 0,
     failed: usize,
     skipped: usize,
     duration_ns: u64,
@@ -69,6 +71,7 @@ pub const TestHistory = struct {
             .timestamp = self.start_time,
             .total = total,
             .passed = 0,
+            .flaky = 0,
             .failed = 0,
             .skipped = 0,
             .duration_ns = 0,
@@ -111,6 +114,7 @@ pub const TestHistory = struct {
         const end_time = compat.milliTimestamp();
         self.current_entry.?.duration_ns = @intCast((end_time - self.start_time) * std.time.ns_per_ms);
         self.current_entry.?.passed = results.passed;
+        self.current_entry.?.flaky = results.flaky;
         self.current_entry.?.failed = results.failed;
         self.current_entry.?.skipped = results.skipped;
 
@@ -128,42 +132,36 @@ pub const TestHistory = struct {
         var filename_buf: [256]u8 = undefined;
         const filename = try std.fmt.bufPrint(&filename_buf, "{s}/test-run-{d}.json", .{ self.history_dir, self.current_entry.?.timestamp });
 
-        // Write JSON
+        // Store the same versioned events consumed by reporters and the UI.
         var buffer = std.ArrayList(u8).empty;
         defer buffer.deinit(self.allocator);
-
-        try buffer.appendSlice(self.allocator, "{\n");
-        try buffer.print(self.allocator, "  \"timestamp\": {d},\n", .{self.current_entry.?.timestamp});
-        try buffer.print(self.allocator, "  \"total\": {d},\n", .{self.current_entry.?.total});
-        try buffer.print(self.allocator, "  \"passed\": {d},\n", .{self.current_entry.?.passed});
-        try buffer.print(self.allocator, "  \"failed\": {d},\n", .{self.current_entry.?.failed});
-        try buffer.print(self.allocator, "  \"skipped\": {d},\n", .{self.current_entry.?.skipped});
-        try buffer.print(self.allocator, "  \"duration_ns\": {d},\n", .{self.current_entry.?.duration_ns});
-        try buffer.appendSlice(self.allocator, "  \"tests\": [\n");
-
-        for (self.current_entry.?.tests.items, 0..) |test_record, i| {
-            try buffer.appendSlice(self.allocator, "    {\n");
-            try buffer.print(self.allocator, "      \"name\": \"{s}\",\n", .{test_record.name});
-            try buffer.print(self.allocator, "      \"suite_name\": \"{s}\",\n", .{test_record.suite_name});
-            try buffer.print(self.allocator, "      \"status\": \"{s}\",\n", .{test_record.status});
-            try buffer.print(self.allocator, "      \"execution_time_ns\": {d}", .{test_record.execution_time_ns});
-
-            if (test_record.error_message) |msg| {
-                try buffer.appendSlice(self.allocator, ",\n");
-                try buffer.print(self.allocator, "      \"error_message\": \"{s}\"\n", .{msg});
-            } else {
-                try buffer.appendSlice(self.allocator, "\n");
-            }
-
-            if (i < self.current_entry.?.tests.items.len - 1) {
-                try buffer.appendSlice(self.allocator, "    },\n");
-            } else {
-                try buffer.appendSlice(self.allocator, "    }\n");
-            }
+        var allocating: std.Io.Writer.Allocating = .fromArrayList(self.allocator, &buffer);
+        errdefer buffer = allocating.toArrayList();
+        const writer = &allocating.writer;
+        try writer.writeAll("[\n");
+        try std.json.Stringify.value(protocol.Event{ .run_start = .{ .total = self.current_entry.?.total } }, .{}, writer);
+        for (self.current_entry.?.tests.items) |test_record| {
+            try writer.writeAll(",\n");
+            try std.json.Stringify.value(protocol.Event{ .test_end = .{
+                .name = test_record.name,
+                .suite = test_record.suite_name,
+                .status = std.meta.stringToEnum(protocol.Status, test_record.status) orelse .failed,
+                .duration_ns = test_record.execution_time_ns,
+                .error_message = test_record.error_message,
+            } }, .{}, writer);
         }
-
-        try buffer.appendSlice(self.allocator, "  ]\n");
-        try buffer.appendSlice(self.allocator, "}\n");
+        try writer.writeAll(",\n");
+        try std.json.Stringify.value(protocol.Event{ .run_end = .{
+            .total = self.current_entry.?.total,
+            .passed = self.current_entry.?.passed,
+            .flaky = self.current_entry.?.flaky,
+            .failed = self.current_entry.?.failed,
+            .skipped = self.current_entry.?.skipped,
+            .duration_ns = self.current_entry.?.duration_ns,
+        } }, .{}, writer);
+        try writer.writeAll("\n]\n");
+        try writer.flush();
+        buffer = allocating.toArrayList();
 
         try compat.writeFile(self.allocator, filename, buffer.items);
     }
@@ -190,6 +188,7 @@ pub const TestHistory = struct {
             .timestamp = 0,
             .total = 0,
             .passed = 0,
+            .flaky = 0,
             .failed = 0,
             .skipped = 0,
             .duration_ns = 0,
@@ -248,4 +247,40 @@ test "TestHistory start and record" {
 
     try history.recordTest("test1", "suite1", .passed, 1000000, null);
     try std.testing.expectEqual(@as(usize, 1), history.current_entry.?.tests.items.len);
+}
+
+test "TestHistory saves versioned protocol events" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const history_dir = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    defer allocator.free(history_dir);
+
+    var history = TestHistory.init(allocator, history_dir);
+    defer history.deinit();
+    try history.startRun(1);
+    try history.recordTest("quoted \"test\"", "suite\nname", .passed, 42, null);
+    var results = reporter_mod.TestResults.init(allocator);
+    defer results.deinit();
+    results.total = 1;
+    results.passed = 1;
+    results.total_time_ns = 42;
+    try history.finishRun(&results);
+
+    const filename = try std.fmt.allocPrint(allocator, "{s}/test-run-{d}.json", .{ history_dir, history.current_entry.?.timestamp });
+    defer allocator.free(filename);
+    const content = try compat.readFileAlloc(allocator, filename);
+    defer allocator.free(content);
+    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, content, .{});
+    defer parsed.deinit();
+
+    const events = parsed.value.array.items;
+    try std.testing.expectEqual(@as(usize, 3), events.len);
+    try std.testing.expectEqualStrings("run_start", events[0].object.get("type").?.string);
+    try std.testing.expectEqualStrings("test_end", events[1].object.get("type").?.string);
+    try std.testing.expectEqualStrings("quoted \"test\"", events[1].object.get("data").?.object.get("name").?.string);
+    try std.testing.expectEqualStrings("run_end", events[2].object.get("type").?.string);
+    for (events) |event| {
+        try std.testing.expectEqual(@as(i64, protocol.version), event.object.get("protocol_version").?.integer);
+    }
 }
