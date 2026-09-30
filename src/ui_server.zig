@@ -321,7 +321,10 @@ pub const UIReporter = struct {
 
     fn onRunStart(reporter: *reporter_mod.Reporter, total: usize) !void {
         const self: *Self = @fieldParentPtr("reporter", reporter);
-        try self.server.broadcastEvent(reporter.allocator, .{ .run_start = .{ .total = total } });
+        try self.server.broadcastEvent(reporter.allocator, .{ .run_start = .{
+            .total = total,
+            .random_seed = reporter.random_seed,
+        } });
     }
 
     fn onRunEnd(reporter: *reporter_mod.Reporter, results: *reporter_mod.TestResults) !void {
@@ -334,6 +337,7 @@ pub const UIReporter = struct {
             .failed = results.failed,
             .skipped = results.skipped,
             .duration_ns = results.total_time_ns,
+            .random_seed = results.random_seed,
         } });
     }
 
@@ -407,6 +411,7 @@ pub const MultiReporter = struct {
     fn onRunStart(reporter: *reporter_mod.Reporter, total: usize) !void {
         const self: *Self = @fieldParentPtr("reporter", reporter);
         for (self.reporters) |rep| {
+            rep.random_seed = reporter.random_seed;
             try rep.onRunStart(total);
         }
     }
@@ -536,7 +541,7 @@ test "UI server streams broadcast events over SSE" {
 
     try server.broadcastEvent(std.testing.allocator, .{ .run_start = .{ .total = 2 } });
     try expectLine(&stream_reader.interface, "event: run_start");
-    try expectLine(&stream_reader.interface, "data: {\"protocol_version\":1,\"type\":\"run_start\",\"data\":{\"total\":2}}");
+    try expectLine(&stream_reader.interface, "data: {\"protocol_version\":1,\"type\":\"run_start\",\"data\":{\"total\":2,\"random_seed\":null}}");
     try expectLine(&stream_reader.interface, "");
 }
 

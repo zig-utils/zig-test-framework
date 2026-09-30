@@ -8,6 +8,7 @@ const coverage = @import("coverage.zig");
 const ui_server = @import("ui_server.zig");
 const compat = @import("compat.zig");
 const protocol = @import("event_protocol.zig");
+const random_order = @import("random_order.zig");
 
 /// Options for running discovered tests
 pub const LoaderOptions = struct {
@@ -33,6 +34,10 @@ pub const LoaderOptions = struct {
     repeat: usize = 1,
     /// Treat recovered failures as an unsuccessful run.
     fail_on_flaky: bool = false,
+    /// Shuffle selected files. A generated seed is printed for replay.
+    shuffle: bool = false,
+    /// Reproduce a shuffled file order. Supplying a seed enables shuffle.
+    seed: ?u64 = null,
     /// Optional output supplied by a CLI host. Embedded/test callers default
     /// to stderr so they do not interfere with Zig's stdout test protocol.
     reporter_writer: ?*std.Io.Writer = null,
@@ -55,6 +60,11 @@ pub fn runDiscoveredTests(
 
     var plan = try discoveryPlan(allocator, discovered, options.shard);
     defer plan.deinit();
+    const random_seed = random_order.resolveSeed(options.shuffle, options.seed);
+    if (random_seed) |seed| {
+        var shuffler = random_order.Shuffler.init(seed);
+        shuffler.shuffle(pipeline.PlanItem, plan.items.items);
+    }
     const selected_files = plan.items.items.len;
     if (options.shard) |shard| {
         std.debug.print(
@@ -84,7 +94,9 @@ pub fn runDiscoveredTests(
         options.use_colors,
     );
     defer reporters.deinit();
-    const events = pipeline.EventStream{ .rep = reporters.selected() };
+    const selected_reporter = reporters.selected();
+    selected_reporter.random_seed = random_seed;
+    const events = pipeline.EventStream{ .rep = selected_reporter };
     const policy = pipeline.ExecutionPolicy{
         .bail = options.bail,
         .filter = options.filter,
@@ -92,6 +104,7 @@ pub fn runDiscoveredTests(
     };
     var results = reporter.TestResults.init(allocator);
     defer results.deinit();
+    results.random_seed = random_seed;
     var executed_cases: std.ArrayList(suite.TestCase) = .empty;
     defer {
         for (executed_cases.items) |*test_case| test_case.deinit(allocator);
@@ -102,7 +115,7 @@ pub fn runDiscoveredTests(
 
     // Notify UI of run start
     if (options.ui_server) |server| {
-        try server.broadcastEvent(allocator, .{ .run_start = .{ .total = selected_files } });
+        try server.broadcastEvent(allocator, .{ .run_start = .{ .total = selected_files, .random_seed = random_seed } });
     }
 
     var files_run: usize = 0;
@@ -241,6 +254,7 @@ pub fn runDiscoveredTests(
             .failed = results.failed,
             .skipped = results.skipped,
             .duration_ns = results.total_time_ns,
+            .random_seed = results.random_seed,
         } });
     }
 
@@ -355,6 +369,8 @@ test "LoaderOptions default values" {
     try std.testing.expectEqual(@as(?sharding.ShardOptions, null), options.shard);
     try std.testing.expectEqual(reporter.ReporterType.spec, options.reporter_type);
     try std.testing.expectEqualStrings("test-results.xml", options.junit_output);
+    try std.testing.expect(!options.shuffle);
+    try std.testing.expect(options.seed == null);
     try std.testing.expectEqual(@as(?u64, null), options.timeout_ms);
     try std.testing.expectEqual(@as(usize, 0), options.retries);
     try std.testing.expectEqual(@as(usize, 1), options.repeat);

@@ -32,6 +32,8 @@ pub const TestOptions = struct {
     retries: usize = 0,
     repeat: usize = 1,
     fail_on_flaky: bool = false,
+    shuffle: bool = false,
+    seed: ?u64 = null,
 };
 
 pub const ParallelOptions = struct {
@@ -207,6 +209,8 @@ test "TestConfig defaults match CLI discovery defaults" {
     try std.testing.expectEqual(@as(usize, 0), config.test_options.retries);
     try std.testing.expectEqual(@as(usize, 1), config.test_options.repeat);
     try std.testing.expect(!config.test_options.fail_on_flaky);
+    try std.testing.expect(!config.test_options.shuffle);
+    try std.testing.expect(config.test_options.seed == null);
     try std.testing.expect(config.sharding.index == null);
     try std.testing.expect(config.sharding.count == null);
     try std.testing.expect(!config.parallel.enabled);
@@ -247,6 +251,8 @@ test "ConfigLoader loads supported JSON and rejects unknown keys" {
     try std.testing.expectEqual(@as(usize, 1), config.test_options.retries);
     try std.testing.expectEqual(@as(usize, 2), config.test_options.repeat);
     try std.testing.expect(!config.test_options.fail_on_flaky);
+    try std.testing.expect(config.test_options.shuffle);
+    try std.testing.expectEqual(@as(?u64, 42), config.test_options.seed);
     try std.testing.expectEqual(@as(?usize, 1), config.sharding.index);
     try std.testing.expectEqual(@as(?usize, 1), config.sharding.count);
 

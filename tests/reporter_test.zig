@@ -56,6 +56,8 @@ test "reporter json output uses versioned event envelopes" {
     defer results.deinit();
     results.total = 1;
     results.passed = 1;
+    results.random_seed = 4242;
+    reporter.reporter.random_seed = 4242;
     var test_case = ztf.TestCase.init("passes \"quoted\"\nname", passingTest);
     test_case.status = .passed;
 
@@ -73,12 +75,14 @@ test "reporter json output uses versioned event envelopes" {
     try std.testing.expectEqual(@as(usize, 6), events.len);
     try std.testing.expectEqual(@as(i64, ztf.protocol_version), events[0].object.get("protocol_version").?.integer);
     try std.testing.expectEqualStrings("run_start", events[0].object.get("type").?.string);
+    try std.testing.expectEqual(@as(i64, 4242), events[0].object.get("data").?.object.get("random_seed").?.integer);
     try std.testing.expectEqualStrings("test_start", events[2].object.get("type").?.string);
     const test_data = events[3].object.get("data").?.object;
     try std.testing.expectEqualStrings(test_case.name, test_data.get("name").?.string);
     try std.testing.expectEqualStrings("suite\tone", test_data.get("suite").?.string);
     try std.testing.expectEqualStrings("run_end", events[5].object.get("type").?.string);
     try std.testing.expectEqual(@as(i64, 1), events[5].object.get("data").?.object.get("passed").?.integer);
+    try std.testing.expectEqual(@as(i64, 4242), events[5].object.get("data").?.object.get("random_seed").?.integer);
 }
 
 test "reporter json output includes flaky attempt history" {
@@ -139,4 +143,33 @@ test "reporter set selects the same built-ins for every executor" {
 
     try std.testing.expect(reporters.selected() == &reporters.tap.reporter);
     try std.testing.expect(!reporters.selected().use_colors);
+}
+
+test "JUnit reporter records the random seed as a suite property" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const output_path = try std.fmt.allocPrint(allocator, ".zig-cache/tmp/{s}/results.xml", .{tmp.sub_path});
+    defer allocator.free(output_path);
+
+    var reporter = ztf.JUnitReporter.init(allocator, output_path);
+    defer reporter.deinit();
+    reporter.reporter.random_seed = 73;
+    var results = ztf.TestResults.init(allocator);
+    defer results.deinit();
+    results.total = 1;
+    results.passed = 1;
+    results.random_seed = 73;
+    var test_case = ztf.TestCase.init("passes", passingTest);
+    test_case.status = .passed;
+
+    try reporter.reporter.onRunStart(1);
+    try reporter.reporter.onSuiteStart("suite");
+    try reporter.reporter.onTestEnd(&test_case);
+    try reporter.reporter.onSuiteEnd("suite");
+    try reporter.reporter.onRunEnd(&results);
+
+    const output = try ztf.compat.readFileAlloc(allocator, output_path);
+    defer allocator.free(output);
+    try std.testing.expect(std.mem.indexOf(u8, output, "<property name=\"random_seed\" value=\"73\"/>") != null);
 }

@@ -4,6 +4,7 @@ const reporter_mod = @import("reporter.zig");
 const pipeline = @import("pipeline.zig");
 const parallel = @import("parallel.zig");
 const compat = @import("compat.zig");
+const random_order = @import("random_order.zig");
 
 pub const RunnerError = error{
     NoTestsFound,
@@ -25,6 +26,10 @@ pub const RunnerOptions = struct {
     repeat: usize = 1,
     /// Treat tests that pass after a retry as an unsuccessful run.
     fail_on_flaky: bool = false,
+    /// Shuffle suites and tests. A generated seed is printed for replay.
+    shuffle: bool = false,
+    /// Reproduce a shuffled run. Supplying a seed implicitly enables shuffle.
+    seed: ?u64 = null,
     /// Optional output supplied by a CLI host. Embedded/test callers default
     /// to stderr so they do not interfere with Zig's stdout test protocol.
     reporter_writer: ?*std.Io.Writer = null,
@@ -71,6 +76,9 @@ pub const TestRunner = struct {
         );
         defer reporters.deinit();
         const current_reporter = reporters.selected();
+        const random_seed = random_order.resolveSeed(self.options.shuffle, self.options.seed);
+        current_reporter.random_seed = random_seed;
+        self.results.random_seed = random_seed;
         const events = pipeline.EventStream{ .rep = current_reporter };
 
         var plan = try pipeline.TestPlan.fromRegistry(self.allocator, self.registry);
@@ -87,6 +95,7 @@ pub const TestRunner = struct {
                 .n_jobs = self.options.n_jobs,
                 .filter = self.options.filter,
                 .timeout_ms = self.options.timeout_ms,
+                .random_seed = random_seed,
             };
 
             const all_passed = try parallel.runTestsParallel(
@@ -106,9 +115,19 @@ pub const TestRunner = struct {
         }
 
         // Sequential execution (original behavior)
+        var shuffler: random_order.Shuffler = undefined;
+        const shuffler_ptr: ?*random_order.Shuffler = if (random_seed) |seed| blk: {
+            shuffler = .init(seed);
+            break :blk &shuffler;
+        } else null;
+        var root_suites: std.ArrayList(*suite.TestSuite) = .empty;
+        defer root_suites.deinit(self.allocator);
+        try root_suites.appendSlice(self.allocator, self.registry.root_suites.items);
+        if (shuffler_ptr) |randomizer| randomizer.shuffle(*suite.TestSuite, root_suites.items);
+
         try events.emit(.{ .run_started = total_tests });
-        for (self.registry.root_suites.items) |test_suite| {
-            try self.runSuite(test_suite, events);
+        for (root_suites.items) |test_suite| {
+            try self.runSuite(test_suite, events, shuffler_ptr);
             if (self.policy().shouldStop(&self.results)) {
                 break;
             }
@@ -130,15 +149,20 @@ pub const TestRunner = struct {
     }
 
     /// Run a single test suite
-    fn runSuite(self: *Self, test_suite: *suite.TestSuite, events: pipeline.EventStream) !void {
+    fn runSuite(
+        self: *Self,
+        test_suite: *suite.TestSuite,
+        events: pipeline.EventStream,
+        shuffler: ?*random_order.Shuffler,
+    ) !void {
         // Skip if marked as skip or if has_only and this isn't marked as only
         if (test_suite.shouldSkip()) {
-            try self.skipAllTests(test_suite, events);
+            try self.skipAllTests(test_suite, events, shuffler);
             return;
         }
 
         if (self.registry.has_only and !test_suite.hasOnly()) {
-            try self.skipAllTests(test_suite, events);
+            try self.skipAllTests(test_suite, events, shuffler);
             return;
         }
 
@@ -148,13 +172,17 @@ pub const TestRunner = struct {
         // Run beforeAll hooks
         test_suite.runBeforeAllHooks(self.allocator) catch |err| {
             std.debug.print("beforeAll hook failed: {any}\n", .{err});
-            try self.skipAllTests(test_suite, events);
+            try self.skipAllTests(test_suite, events, shuffler);
             try events.emit(.{ .suite_finished = test_suite.name });
             return;
         };
 
         // Run tests in this suite
-        for (test_suite.tests.items) |*test_case| {
+        var tests: std.ArrayList(*suite.TestCase) = .empty;
+        defer tests.deinit(self.allocator);
+        for (test_suite.tests.items) |*test_case| try tests.append(self.allocator, test_case);
+        if (shuffler) |randomizer| randomizer.shuffle(*suite.TestCase, tests.items);
+        for (tests.items) |test_case| {
             if (test_case.skip or (self.registry.has_only and !test_case.only)) {
                 test_case.status = .skipped;
                 try events.emit(.{ .test_finished = test_case });
@@ -178,8 +206,12 @@ pub const TestRunner = struct {
         }
 
         // Run nested suites
-        for (test_suite.suites.items) |nested_suite| {
-            try self.runSuite(nested_suite, events);
+        var nested_suites: std.ArrayList(*suite.TestSuite) = .empty;
+        defer nested_suites.deinit(self.allocator);
+        try nested_suites.appendSlice(self.allocator, test_suite.suites.items);
+        if (shuffler) |randomizer| randomizer.shuffle(*suite.TestSuite, nested_suites.items);
+        for (nested_suites.items) |nested_suite| {
+            try self.runSuite(nested_suite, events, shuffler);
             if (self.policy().shouldStop(&self.results)) {
                 break;
             }
@@ -298,15 +330,28 @@ pub const TestRunner = struct {
     }
 
     /// Skip all tests in a suite
-    fn skipAllTests(self: *Self, test_suite: *suite.TestSuite, events: pipeline.EventStream) !void {
-        for (test_suite.tests.items) |*test_case| {
+    fn skipAllTests(
+        self: *Self,
+        test_suite: *suite.TestSuite,
+        events: pipeline.EventStream,
+        shuffler: ?*random_order.Shuffler,
+    ) !void {
+        var tests: std.ArrayList(*suite.TestCase) = .empty;
+        defer tests.deinit(self.allocator);
+        for (test_suite.tests.items) |*test_case| try tests.append(self.allocator, test_case);
+        if (shuffler) |randomizer| randomizer.shuffle(*suite.TestCase, tests.items);
+        for (tests.items) |test_case| {
             test_case.status = .skipped;
             try self.results.addTest(test_case);
             try events.emit(.{ .test_finished = test_case });
         }
 
-        for (test_suite.suites.items) |nested_suite| {
-            try self.skipAllTests(nested_suite, events);
+        var nested_suites: std.ArrayList(*suite.TestSuite) = .empty;
+        defer nested_suites.deinit(self.allocator);
+        try nested_suites.appendSlice(self.allocator, test_suite.suites.items);
+        if (shuffler) |randomizer| randomizer.shuffle(*suite.TestSuite, nested_suites.items);
+        for (nested_suites.items) |nested_suite| {
+            try self.skipAllTests(nested_suite, events, shuffler);
         }
     }
 
@@ -355,6 +400,8 @@ test "RunnerOptions default values" {
     try std.testing.expectEqual(@as(usize, 0), options.retries);
     try std.testing.expectEqual(@as(usize, 1), options.repeat);
     try std.testing.expect(!options.fail_on_flaky);
+    try std.testing.expect(!options.shuffle);
+    try std.testing.expect(options.seed == null);
 }
 
 test "RunnerOptions custom values" {
@@ -376,6 +423,37 @@ var failing_fixture_runs: usize = 0;
 var skipped_by_bail_runs: usize = 0;
 var repeated_fixture_runs: usize = 0;
 var timeout_fixture_runs: usize = 0;
+var randomized_log: [6]u8 = undefined;
+var randomized_log_len: usize = 0;
+
+fn recordRandomized(id: u8) void {
+    randomized_log[randomized_log_len] = id;
+    randomized_log_len += 1;
+}
+
+fn randomizedOne(_: std.mem.Allocator) !void {
+    recordRandomized(1);
+}
+
+fn randomizedTwo(_: std.mem.Allocator) !void {
+    recordRandomized(2);
+}
+
+fn randomizedThree(_: std.mem.Allocator) !void {
+    recordRandomized(3);
+}
+
+fn randomizedFour(_: std.mem.Allocator) !void {
+    recordRandomized(4);
+}
+
+fn randomizedFive(_: std.mem.Allocator) !void {
+    recordRandomized(5);
+}
+
+fn randomizedSix(_: std.mem.Allocator) !void {
+    recordRandomized(6);
+}
 
 fn flakyFixture(_: std.mem.Allocator) !void {
     flaky_fixture_runs += 1;
@@ -389,6 +467,48 @@ fn failingFixture(_: std.mem.Allocator) !void {
 
 fn skippedByBailFixture(_: std.mem.Allocator) !void {
     skipped_by_bail_runs += 1;
+}
+
+test "sequential order is reproducible with a fixed seed" {
+    const allocator = std.testing.allocator;
+    var registry = suite.TestRegistry.init(allocator);
+    defer registry.deinit();
+    const test_suite = try suite.TestSuite.init(allocator, "randomized");
+    try test_suite.addTest(suite.TestCase.init("one", randomizedOne));
+    try test_suite.addTest(suite.TestCase.init("two", randomizedTwo));
+    try test_suite.addTest(suite.TestCase.init("three", randomizedThree));
+    try test_suite.addTest(suite.TestCase.init("four", randomizedFour));
+    try test_suite.addTest(suite.TestCase.init("five", randomizedFive));
+    try test_suite.addTest(suite.TestCase.init("six", randomizedSix));
+    try registry.registerSuite(test_suite);
+
+    var first_output: [4096]u8 = undefined;
+    var first_writer: std.Io.Writer = .fixed(&first_output);
+    randomized_log_len = 0;
+    var first_runner = TestRunner.init(allocator, &registry, .{
+        .seed = 112358,
+        .use_colors = false,
+        .reporter_writer = &first_writer,
+    });
+    defer first_runner.deinit();
+    try std.testing.expect(try first_runner.run());
+    const first_order = randomized_log;
+
+    var second_output: [4096]u8 = undefined;
+    var second_writer: std.Io.Writer = .fixed(&second_output);
+    randomized_log_len = 0;
+    var second_runner = TestRunner.init(allocator, &registry, .{
+        .seed = 112358,
+        .use_colors = false,
+        .reporter_writer = &second_writer,
+    });
+    defer second_runner.deinit();
+    try std.testing.expect(try second_runner.run());
+
+    try std.testing.expectEqual(@as(usize, randomized_log.len), randomized_log_len);
+    try std.testing.expectEqualSlices(u8, &first_order, &randomized_log);
+    try std.testing.expectEqual(@as(?u64, 112358), first_runner.results.random_seed);
+    try std.testing.expectEqual(@as(?u64, 112358), second_runner.results.random_seed);
 }
 
 fn repeatedFixture(_: std.mem.Allocator) !void {
