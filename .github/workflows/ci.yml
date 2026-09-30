@@ -46,6 +46,11 @@ jobs:
       - name: Build framework
         run: zig build
 
+      - name: Diagnose UI server lifecycle on Windows
+        if: runner.os == 'Windows'
+        timeout-minutes: 3
+        run: zig test src/ui_server.zig -lc --test-filter "UI server"
+
       - name: Run tests
         run: zig build test
 
