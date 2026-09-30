@@ -47,8 +47,8 @@ test "reporter dot output" {
     try std.testing.expect(std.mem.indexOf(u8, output, "Passed: 1") != null);
 }
 
-test "reporter json output" {
-    var buffer: [2048]u8 = undefined;
+test "reporter json output uses versioned event envelopes" {
+    var buffer: [4096]u8 = undefined;
     const writer: std.Io.Writer = .fixed(&buffer);
     var reporter = ztf.JsonReporter.init(std.testing.allocator, writer);
     defer reporter.deinit();
@@ -56,20 +56,29 @@ test "reporter json output" {
     defer results.deinit();
     results.total = 1;
     results.passed = 1;
-    var test_case = ztf.TestCase.init("passes", passingTest);
+    var test_case = ztf.TestCase.init("passes \"quoted\"\nname", passingTest);
     test_case.status = .passed;
 
     try reporter.reporter.onRunStart(1);
-    try reporter.reporter.onSuiteStart("suite");
+    try reporter.reporter.onSuiteStart("suite\tone");
+    try reporter.reporter.onTestStart(test_case.name);
     try reporter.reporter.onTestEnd(&test_case);
-    try reporter.reporter.onSuiteEnd("suite");
+    try reporter.reporter.onSuiteEnd("suite\tone");
     try reporter.reporter.onRunEnd(&results);
 
     const output = buffer[0..reporter.writer.end];
-    try std.testing.expect(std.mem.indexOf(u8, output, "\"name\":\"passes\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "\"passed\":1") != null);
     var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator, output, .{});
     defer parsed.deinit();
+    const events = parsed.value.array.items;
+    try std.testing.expectEqual(@as(usize, 6), events.len);
+    try std.testing.expectEqual(@as(i64, ztf.protocol_version), events[0].object.get("protocol_version").?.integer);
+    try std.testing.expectEqualStrings("run_start", events[0].object.get("type").?.string);
+    try std.testing.expectEqualStrings("test_start", events[2].object.get("type").?.string);
+    const test_data = events[3].object.get("data").?.object;
+    try std.testing.expectEqualStrings(test_case.name, test_data.get("name").?.string);
+    try std.testing.expectEqualStrings("suite\tone", test_data.get("suite").?.string);
+    try std.testing.expectEqualStrings("run_end", events[5].object.get("type").?.string);
+    try std.testing.expectEqual(@as(i64, 1), events[5].object.get("data").?.object.get("passed").?.integer);
 }
 
 test "reporter json output includes flaky attempt history" {
@@ -106,10 +115,14 @@ test "reporter json output includes flaky attempt history" {
 
     const output = buffer[0..reporter.writer.end];
     try std.testing.expect(std.mem.indexOf(u8, output, "\"status\":\"flaky\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "\"attempts\":[") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "\"durationNs\":10") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"type\":\"retry\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "\"duration_ns\":10") != null);
     var parsed = try std.json.parseFromSlice(std.json.Value, allocator, output, .{});
     defer parsed.deinit();
+    const events = parsed.value.array.items;
+    try std.testing.expectEqualStrings("retry", events[2].object.get("type").?.string);
+    try std.testing.expectEqualStrings("retry", events[3].object.get("type").?.string);
+    try std.testing.expectEqualStrings("test_end", events[4].object.get("type").?.string);
 }
 
 test "reporter set selects the same built-ins for every executor" {

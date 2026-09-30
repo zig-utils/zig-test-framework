@@ -6,6 +6,7 @@ pub const suite = @import("suite.zig");
 pub const test_runner = @import("test_runner.zig");
 pub const reporter = @import("reporter.zig");
 pub const pipeline = @import("pipeline.zig");
+pub const event_protocol = @import("event_protocol.zig");
 pub const matchers = @import("matchers.zig");
 pub const mock = @import("mock.zig");
 pub const cli = @import("cli.zig");
@@ -90,6 +91,8 @@ pub const PlanOrigin = pipeline.PlanOrigin;
 pub const ExecutionPolicy = pipeline.ExecutionPolicy;
 pub const LifecycleEvent = pipeline.LifecycleEvent;
 pub const EventStream = pipeline.EventStream;
+pub const ProtocolEvent = event_protocol.Event;
+pub const protocol_version = event_protocol.version;
 
 // Matchers
 pub const Matchers = matchers.Matchers;

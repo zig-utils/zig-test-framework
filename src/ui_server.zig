@@ -3,6 +3,7 @@ const reporter_mod = @import("reporter.zig");
 const suite = @import("suite.zig");
 const test_history = @import("test_history.zig");
 const compat = @import("compat.zig");
+const protocol = @import("event_protocol.zig");
 
 /// Options for the UI server
 pub const UIServerOptions = struct {
@@ -282,13 +283,19 @@ pub const UIServer = struct {
             index += 1;
         }
     }
+
+    /// Serialize and broadcast one versioned protocol event.
+    pub fn broadcastEvent(self: *Self, allocator: std.mem.Allocator, event: protocol.Event) !void {
+        const encoded = try protocol.encodeAlloc(allocator, event);
+        defer allocator.free(encoded);
+        try self.broadcast(event.eventName(), encoded);
+    }
 };
 
 /// UI Reporter - sends test events to the UI server
 pub const UIReporter = struct {
     reporter: reporter_mod.Reporter,
     server: *UIServer,
-    buffer: std.ArrayList(u8),
 
     const Self = @This();
 
@@ -307,71 +314,66 @@ pub const UIReporter = struct {
                 .use_colors = false,
             },
             .server = server,
-            .buffer = .empty,
         };
     }
 
-    pub fn deinit(self: *Self) void {
-        self.buffer.deinit(self.reporter.allocator);
-    }
-
-    fn encode(self: *Self, value: anytype) !void {
-        self.buffer.clearRetainingCapacity();
-        var writer: std.Io.Writer.Allocating = .fromArrayList(self.reporter.allocator, &self.buffer);
-        defer self.buffer = writer.toArrayList();
-        try std.json.Stringify.value(value, .{}, &writer.writer);
-    }
+    pub fn deinit(_: *Self) void {}
 
     fn onRunStart(reporter: *reporter_mod.Reporter, total: usize) !void {
         const self: *Self = @fieldParentPtr("reporter", reporter);
-        try self.encode(.{ .total = total });
-        try self.server.broadcast("run_start", self.buffer.items);
+        try self.server.broadcastEvent(reporter.allocator, .{ .run_start = .{ .total = total } });
     }
 
     fn onRunEnd(reporter: *reporter_mod.Reporter, results: *reporter_mod.TestResults) !void {
         const self: *Self = @fieldParentPtr("reporter", reporter);
 
-        try self.encode(.{
+        try self.server.broadcastEvent(reporter.allocator, .{ .run_end = .{
             .total = results.total,
             .passed = results.passed,
             .flaky = results.flaky,
             .failed = results.failed,
             .skipped = results.skipped,
-        });
-        try self.server.broadcast("run_end", self.buffer.items);
+            .duration_ns = results.total_time_ns,
+        } });
     }
 
     fn onSuiteStart(reporter: *reporter_mod.Reporter, suite_name: []const u8) !void {
         const self: *Self = @fieldParentPtr("reporter", reporter);
 
-        try self.encode(.{ .name = suite_name });
-        try self.server.broadcast("suite_start", self.buffer.items);
+        try self.server.broadcastEvent(reporter.allocator, .{ .suite_start = .{ .name = suite_name } });
     }
 
     fn onSuiteEnd(reporter: *reporter_mod.Reporter, suite_name: []const u8) !void {
         const self: *Self = @fieldParentPtr("reporter", reporter);
 
-        try self.encode(.{ .name = suite_name });
-        try self.server.broadcast("suite_end", self.buffer.items);
+        try self.server.broadcastEvent(reporter.allocator, .{ .suite_end = .{ .name = suite_name } });
     }
 
     fn onTestStart(reporter: *reporter_mod.Reporter, test_name: []const u8) !void {
         const self: *Self = @fieldParentPtr("reporter", reporter);
 
-        try self.encode(.{ .name = test_name });
-        try self.server.broadcast("test_start", self.buffer.items);
+        try self.server.broadcastEvent(reporter.allocator, .{ .test_start = .{ .name = test_name } });
     }
 
     fn onTestEnd(reporter: *reporter_mod.Reporter, test_case: *const suite.TestCase) !void {
         const self: *Self = @fieldParentPtr("reporter", reporter);
 
-        try self.encode(.{
+        for (test_case.attempts.items) |attempt| {
+            try self.server.broadcastEvent(reporter.allocator, .{ .retry = .{
+                .name = test_case.name,
+                .attempt = attempt.number,
+                .repetition = attempt.repetition,
+                .status = protocol.status(attempt.status),
+                .duration_ns = attempt.duration_ns,
+                .error_message = attempt.error_message,
+            } });
+        }
+        try self.server.broadcastEvent(reporter.allocator, .{ .test_end = .{
             .name = test_case.name,
-            .status = @tagName(test_case.status),
-            .execution_time_ns = test_case.execution_time_ns,
-            .error_message = test_case.error_message orelse "",
-        });
-        try self.server.broadcast("test_end", self.buffer.items);
+            .status = protocol.status(test_case.status),
+            .duration_ns = test_case.execution_time_ns,
+            .error_message = test_case.error_message,
+        } });
     }
 };
 
@@ -471,10 +473,7 @@ test "UIReporter initialization" {
     defer ui_reporter.deinit();
 
     try std.testing.expectEqual(false, ui_reporter.reporter.use_colors);
-    try std.testing.expectEqual(@as(usize, 0), ui_reporter.buffer.items.len);
-
     try ui_reporter.reporter.onSuiteStart("quoted \"suite\"\nname");
-    try std.testing.expectEqualStrings("{\"name\":\"quoted \\\"suite\\\"\\nname\"}", ui_reporter.buffer.items);
 }
 
 fn writeTestRequest(io: std.Io, stream: std.Io.net.Stream, target: []const u8) !void {
@@ -535,9 +534,9 @@ test "UI server streams broadcast events over SSE" {
     try expectLine(&stream_reader.interface, "data: {}");
     try expectLine(&stream_reader.interface, "");
 
-    try server.broadcast("run_start", "{\"total\":2}");
+    try server.broadcastEvent(std.testing.allocator, .{ .run_start = .{ .total = 2 } });
     try expectLine(&stream_reader.interface, "event: run_start");
-    try expectLine(&stream_reader.interface, "data: {\"total\":2}");
+    try expectLine(&stream_reader.interface, "data: {\"protocol_version\":1,\"type\":\"run_start\",\"data\":{\"total\":2}}");
     try expectLine(&stream_reader.interface, "");
 }
 

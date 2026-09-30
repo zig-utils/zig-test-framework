@@ -332,26 +332,26 @@
             });
 
             eventSource.addEventListener('run_start', (e) => {
-                const data = JSON.parse(e.data);
+                const data = JSON.parse(e.data).data;
                 clearTests();
                 state.total = data.total;
                 updateStats();
             });
 
             eventSource.addEventListener('suite_start', (e) => {
-                const data = JSON.parse(e.data);
+                const data = JSON.parse(e.data).data;
                 state.currentSuite = data.name;
                 addSuite(data.name);
             });
 
             eventSource.addEventListener('test_start', (e) => {
-                const data = JSON.parse(e.data);
-                addTest(state.currentSuite, data.name, 'running');
+                const data = JSON.parse(e.data).data;
+                addTest(data.suite || state.currentSuite, data.name, 'running');
             });
 
             eventSource.addEventListener('test_end', (e) => {
-                const data = JSON.parse(e.data);
-                updateTest(state.currentSuite, data.name, data.status, data.execution_time_ns, data.error_message);
+                const data = JSON.parse(e.data).data;
+                updateTest(data.suite || state.currentSuite, data.name, data.status, data.duration_ns, data.error_message || '');
 
                 if (data.status === 'passed') state.passed++;
                 else if (data.status === 'flaky') state.flaky++;
@@ -362,7 +362,7 @@
             });
 
             eventSource.addEventListener('run_end', (e) => {
-                const data = JSON.parse(e.data);
+                const data = JSON.parse(e.data).data;
                 state.total = data.total;
                 state.passed = data.passed;
                 state.flaky = data.flaky;
