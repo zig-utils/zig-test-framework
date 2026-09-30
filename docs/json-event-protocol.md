@@ -35,8 +35,8 @@ events are emitted in attempt order immediately before their `test_end`.
 
 | Type | Data fields |
 | --- | --- |
-| `run_start` | `total` |
-| `run_end` | `total`, `passed`, `flaky`, `failed`, `skipped`, `duration_ns` |
+| `run_start` | `total`, optional `random_seed` |
+| `run_end` | `total`, `passed`, `flaky`, `failed`, `skipped`, `duration_ns`, optional `random_seed` |
 | `suite_start`, `suite_end` | `name` |
 | `test_start` | `name`, optional `suite` |
 | `test_end` | `name`, optional `suite`, `status`, `duration_ns`, optional `error_message` |
@@ -51,6 +51,8 @@ Output streams are `stdout` or `stderr`.
 
 Optional fields are serialized as `null` when no value is available. Durations
 are unsigned integer nanoseconds. Percentages are numbers from 0 through 100.
+When randomized ordering is enabled, both run events carry the reproducible
+unsigned integer seed.
 
 ## Compatibility policy
 
