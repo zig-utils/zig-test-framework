@@ -820,27 +820,32 @@ Passed: 12, Failed: 0, Total: 12 (1.23ms)
 
 ### JSON Reporter
 
-Machine-readable output for tooling:
+Machine-readable output uses the versioned event protocol shared with the live
+UI and test history:
 
 ```json
-{
-  "totalTests": 12,
-  "tests": [
-    {
+[
+  {
+    "protocol_version": 1,
+    "type": "run_start",
+    "data": { "total": 12 }
+  },
+  {
+    "protocol_version": 1,
+    "type": "test_end",
+    "data": {
       "name": "should add two numbers",
+      "suite": "Math operations",
       "status": "passed",
-      "time": 0.05
+      "duration_ns": 50000,
+      "error_message": null
     }
-  ],
-  "summary": {
-    "total": 12,
-    "passed": 12,
-    "failed": 0,
-    "skipped": 0,
-    "time": 1.23
   }
-}
+]
 ```
+
+See [docs/json-event-protocol.md](docs/json-event-protocol.md) for every event
+type and the compatibility policy.
 
 ## API Reference
 
